@@ -16,11 +16,11 @@
    - [ICP Odometry Refinement](#23-icp-odometry-refinement)
    - [SLAM with slam_toolbox](#24-slam-with-slam_toolbox)
 3. [Results](#3-results)
-   - [Configuration Definition](#31-configuration-definition)
-   - [Trajectory Plots](#32-trajectory-plots)
-   - [Generated Maps](#33-generated-maps)
-   - [Quantitative Metrics](#34-quantitative-metrics)
-   - [Discussion](#35-discussion)
+   - [Configuration Definition](#configuration-definition)
+   - [Part 1 – EKF Odometry Fusion](#31-part-1--ekf-odometry-fusion)
+   - [Part 2 – ICP Odometry Refinement](#32-part-2--icp-odometry-refinement)
+   - [Part 3 – Full SLAM](#33-part-3--full-slam-with-slam_toolbox)
+   - [Overall Comparison](#34-overall-comparison)
 
 ---
 
@@ -593,11 +593,20 @@ Implement an Extended Kalman Filter (EKF) to fuse wheel odometry and IMU measure
 #### Description
 Wheel odometry is computed from `/joint_states` and fused with IMU measurements from `/imu` using the EKF. The filter estimates robot pose by combining a differential-drive motion model with probabilistic sensor updates (gyroscope, accelerometer, and centripetal acceleration). The result is compared against the baseline dead-reckoning trajectory.
 
-#### Trajectory Comparison: Wheel Odometry vs EKF Odometry
+#### Trajectory Plots — All Methods per Sequence
 
-Each row is one sequence. Left column shows both methods overlaid; middle and right columns show each method individually with its LCE and drift rate.
+Each figure shows all five methods on one sequence.
+Top row: **Wheel Odometry** | **EKF Odometry** | **ICP Odometry**
+Bottom row: **SLAM Config A** | **SLAM Config B** | **All Methods Overlay**
 
-![Part 1 – Wheel vs EKF](results/part1_wheel_vs_ekf.png)
+**Sequence 0 – Empty Hallway**
+![All Methods Seq 0](results/sequence_0_all_methods.png)
+
+**Sequence 1 – Sharp Turns**
+![All Methods Seq 1](results/sequence_1_all_methods.png)
+
+**Sequence 2 – Smooth Motion**
+![All Methods Seq 2](results/sequence_2_all_methods.png)
 
 #### Part 1 Quantitative Results
 
@@ -628,9 +637,7 @@ The EKF odometry from Part 1 is used as the initial guess for ICP scan matching 
 
 #### Trajectory Comparison: EKF vs ICP Odometry
 
-Each row is one sequence. Left column shows both methods overlaid; middle and right show each individually.
-
-![Part 2 – EKF vs ICP](results/part2_ekf_vs_icp.png)
+ICP trajectories are shown in the all-methods plots above (top row, right panel of each sequence).
 
 #### 2D Occupancy Maps from ICP
 
@@ -670,17 +677,7 @@ Perform full SLAM using `slam_toolbox` and compare its pose estimation and mappi
 
 #### Config A (Relaxed) vs Config B (Strict) – SLAM Trajectory
 
-**Sequence 0 – Empty Hallway**
-
-![Sequence 0 SLAM Config](results/sequence_0_both_configs.png)
-
-**Sequence 1 – Sharp Turns**
-
-![Sequence 1 SLAM Config](results/sequence_1_both_configs.png)
-
-**Sequence 2 – Smooth Motion**
-
-![Sequence 2 SLAM Config](results/sequence_2_both_configs.png)
+SLAM Config A and Config B trajectories are shown in the all-methods plots in §3.1 (bottom row, left and center panels of each sequence). Key differences are most visible in Sequence 1 where Config A diverges severely.
 
 **All sequences overview:**
 
