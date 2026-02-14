@@ -80,23 +80,10 @@ source install/setup.bash
 ```
 
 **7. (Optional) Auto-source on every new terminal**
-
-Open `~/.bashrc` in any text editor and add this line at the bottom:
 ```bash
-source /home/YOUR_USERNAME/Mobile_Robot/install/setup.bash
-```
-
-Replace `YOUR_USERNAME` with your actual username (e.g. `prime`):
-```bash
-source /home/prime/Mobile_Robot/install/setup.bash
-```
-
-Then reload the current terminal:
-```bash
+echo "source ~/Mobile_Robot/install/setup.bash" >> ~/.bashrc
 source ~/.bashrc
 ```
-
-> **Skip this step** if you prefer to run `source install/setup.bash` manually each time you open a new terminal. This is safer if you work with multiple ROS workspaces.
 
 ### Running the Experiments
 
