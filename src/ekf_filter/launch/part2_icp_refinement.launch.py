@@ -15,7 +15,7 @@ def generate_launch_description():
     # Derive workspace paths from installed package share directory
     pkg_dir = get_package_share_directory('ekf_filter')
     results_dir = os.path.normpath(os.path.join(pkg_dir, '..', '..', '..', '..', 'results'))
-    rviz_config = os.path.join(pkg_dir, 'rviz', 'slam_view.rviz')
+    rviz_config = os.path.join(pkg_dir, 'rviz', 'icp_view.rviz')
 
     # Read Data Node
     read_data_node = Node(

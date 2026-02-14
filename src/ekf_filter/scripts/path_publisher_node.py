@@ -70,17 +70,15 @@ class PathPublisherNode(Node):
         pose_in_odom.header = msg.header  # frame_id should be 'odom'
         pose_in_odom.pose = msg.pose.pose
 
-        # Try to transform pose from odom to map frame
+        # Try to transform pose from odom to map frame (zero timeout = non-blocking)
         try:
-            # Look up transform from odom to map
             transform = self.tf_buffer.lookup_transform(
                 'map',
-                msg.header.frame_id,  # usually 'odom'
-                rclpy.time.Time(),  # Use latest available transform
-                timeout=rclpy.duration.Duration(seconds=0.1)
+                msg.header.frame_id,
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.0)
             )
 
-            # Transform the pose to map frame
             pose_in_map = do_transform_pose_stamped(pose_in_odom, transform)
             pose_in_map.header.frame_id = 'map'
 
@@ -89,16 +87,11 @@ class PathPublisherNode(Node):
                 self.get_logger().info('TF map->odom available, path now tracking in map frame')
 
         except (tf2_ros.LookupException, tf2_ros.ConnectivityException,
-                tf2_ros.ExtrapolationException) as e:
-            # If transform not available yet, use odom frame directly
-            # This happens before SLAM initializes the map->odom transform
-            if self.tf_ready:
-                self.get_logger().warn(f'TF lookup failed: {e}')
+                tf2_ros.ExtrapolationException):
             pose_in_map = pose_in_odom
-            pose_in_map.header.frame_id = 'odom'  # Fall back to odom frame
-            self.path.header.frame_id = 'odom'
+            pose_in_map.header.frame_id = msg.header.frame_id
+            self.path.header.frame_id = msg.header.frame_id
 
-        # Once we have map->odom, always use map frame
         if self.tf_ready:
             self.path.header.frame_id = 'map'
             pose_in_map.header.frame_id = 'map'

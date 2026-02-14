@@ -1,0 +1,80 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+
+Visualization Manager:
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Reference Frame: odom
+      Enabled: true
+
+    - Class: rviz_default_plugins/Map
+      Name: ICP Map
+      Topic: /icp_map
+      Enabled: true
+      Color Scheme: map
+      Alpha: 0.7
+
+    - Class: rviz_default_plugins/Path
+      Name: Wheel Path
+      Topic: /wheel/path
+      Enabled: true
+      Color: 150; 150; 150
+      Alpha: 1.0
+      Buffer Length: 1
+      Line Style: Lines
+      Line Width: 0.03
+
+    - Class: rviz_default_plugins/Path
+      Name: EKF Path
+      Topic: /ekf/path
+      Enabled: true
+      Color: 30; 100; 255
+      Alpha: 1.0
+      Buffer Length: 1
+      Line Style: Lines
+      Line Width: 0.04
+
+    - Class: rviz_default_plugins/Path
+      Name: ICP Path
+      Topic: /icp/path
+      Enabled: true
+      Color: 255; 60; 60
+      Alpha: 1.0
+      Buffer Length: 1
+      Line Style: Lines
+      Line Width: 0.04
+
+    - Class: rviz_default_plugins/LaserScan
+      Name: Laser Scan
+      Topic: /read_data/scan
+      Enabled: true
+      Size (m): 0.04
+      Color: 255; 200; 0
+      Alpha: 0.8
+
+    - Class: rviz_default_plugins/Axes
+      Name: Robot Pose (EKF)
+      Enabled: true
+      Reference Frame: base_link
+      Length: 0.4
+      Radius: 0.04
+
+  Global Options:
+    Fixed Frame: odom
+    Background Color: 48; 48; 48
+
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 30.0
+      Focal Point:
+        X: 0.0
+        Y: 0.0
+        Z: 0.0
+      Name: Orbit View
+      Pitch: 1.57
+      Yaw: 0.0

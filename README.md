@@ -218,104 +218,317 @@ This accumulates unbounded error over time, especially in heading, because wheel
 ### 2.2 Extended Kalman Filter (EKF)
 
 The EKF fuses wheel encoder data with the IMU to reduce drift, particularly heading drift from the gyroscope.
+**Code:** `src/ekf_filter/scripts/part1/ekf_odometry_node.py`
 
-**State vector:** `[x, y, θ, v, ω]` — position, heading, linear velocity, angular velocity
+#### State Vector
 
-#### Prediction Step (20 Hz, from `/joint_states`)
-
-For curved motion (`|ω| > 1×10⁻⁶ rad/s`):
 ```
-x_new = x + (v/ω)(sin(θ + ω·dt) − sin(θ))
-y_new = y + (v/ω)(−cos(θ + ω·dt) + cos(θ))
-θ_new = θ + ω·dt
+state = [x, y, θ, v, ω]          # shape (5,)
 ```
 
-For straight-line motion (`ω ≈ 0`):
+| Index | Variable | Meaning | Unit |
+|-------|----------|---------|------|
+| 0 | `x` | position east | m |
+| 1 | `y` | position north | m |
+| 2 | `θ` | heading (yaw) | rad |
+| 3 | `v` | linear velocity | m/s |
+| 4 | `ω` | angular velocity | rad/s |
+
+Initial covariance `P = 0.1 · I₅`.
+
+---
+
+#### Process Model — Prediction Step (20 Hz, triggered by `/joint_states`)
+
+Called inside `joint_states_callback → ekf_predict(dt)`.
+Uses the **differential-drive motion model**:
+
+For curved motion `|ω| > 1×10⁻⁶ rad/s`:
 ```
-x_new = x + v·cos(θ)·dt
-y_new = y + v·sin(θ)·dt
-θ_new = θ
+x  ← x + (v/ω)·(sin(θ + ω·dt) − sin(θ))
+y  ← y + (v/ω)·(−cos(θ + ω·dt) + cos(θ))
+θ  ← θ + ω·dt
+v, ω unchanged (velocities are updated by measurement)
 ```
 
-Covariance prediction: `P_pred = F·P·Fᵀ + Q`
-where `F` is the analytically-derived Jacobian of the motion model.
+For straight-line motion `|ω| ≈ 0`:
+```
+x  ← x + v·cos(θ)·dt
+y  ← y + v·sin(θ)·dt
+θ  unchanged
+```
 
-#### Measurement Updates (20 Hz, from `/imu`)
+Covariance prediction:
+```
+P ← F · P · Fᵀ + Q
+```
 
-Three independent updates are applied per IMU callback:
+`F` is the **5×5 Jacobian** of the motion model (analytically derived in `ekf_predict`):
+- `F[0,2]`, `F[1,2]` = ∂x/∂θ, ∂y/∂θ
+- `F[0,3]`, `F[1,3]` = ∂x/∂v, ∂y/∂v
+- `F[0,4]`, `F[1,4]`, `F[2,4]` = ∂x/∂ω, ∂y/∂ω, ∂θ/∂ω (only for curved case)
 
-1. **Gyroscope update** — directly measures `ω`
-   `H = [0, 0, 0, 0, 1]` → updates `state[4]`
+**Process noise** (tuned from sensor calibration):
+```python
+Q = diag([0.01,   # x position noise  (m²)
+          0.01,   # y position noise  (m²)
+          0.01,   # θ heading noise   (rad²)
+          0.010,  # v velocity noise  (m/s)²
+          0.01])  # ω angular noise   (rad/s)²
+```
 
-2. **Accelerometer update** — integrates `a_x` to refine `v`
-   Applied only when `|a_x| > 0.05 m/s²` (ignores noise when nearly still)
-   `H = [0, 0, 0, 1, 0]` → updates `state[3]`
+---
 
-3. **Centripetal acceleration update** — uses `a_y ≈ v·ω` to refine `ω` during turns
-   Applied only when `|v| > 0.05 m/s` and `|a_y| > 0.02 m/s²`
-   `H = [0, 0, 0, 0, 1]` → updates `state[4]`
+#### Measurement Models — Update Steps
 
-**Wheel encoder update** (per `/joint_states` callback):
-Computes `[v_odom, ω_odom]` and updates `state[3:5]`.
+**Update 1 – Wheel Odometry** `[v_odom, ω_odom]` (20 Hz, `/joint_states`)
 
-#### Outlier Rejection
+```
+d_left  = (Δφ_L) · r           r = 0.033 m
+d_right = (Δφ_R) · r
+v_odom  = (d_right + d_left) / (2·dt)
+ω_odom  = (d_right − d_left) / (L·dt)   L = 0.160 m
 
-Mahalanobis distance gating applied to every update:
-`d² = (z − Hx)ᵀ (H·P·Hᵀ + R)⁻¹ (z − Hx)`
-Measurements with `d² > threshold` are silently rejected.
+z = [v_odom, ω_odom]
+H = [[0, 0, 0, 1, 0],    # measures state[3] = v
+     [0, 0, 0, 0, 1]]    # measures state[4] = ω
+
+R_odom = diag([0.0005, 0.0031])   # (m/s)², (rad/s)²
+```
+
+**Update 2 – IMU Gyroscope** `ω_z` (20 Hz, `/imu`)
+
+```
+z = [ω_z − gyro_bias_z]
+H = [[0, 0, 0, 0, 1]]    # measures state[4] = ω
+
+R_gyro = diag([0.0030])   # (rad/s)²
+```
+Applied unconditionally every IMU callback.
+
+**Update 3 – IMU Accelerometer** `a_x` (20 Hz, `/imu`, only when `|a_x| > 0.05 m/s²`)
+
+```
+v_from_accel = state[3] + (a_x − bias_x) · dt
+z = [v_from_accel]
+H = [[0, 0, 0, 1, 0]]    # measures state[3] = v
+
+R_accel = diag([0.1907])  # (m/s²)²
+```
+Integrates forward acceleration to refine linear velocity estimate.
+
+**Update 4 – Centripetal Acceleration** `a_y` (20 Hz, `/imu`, only when `|v| > 0.05` and `|a_y| > 0.02`)
+
+```
+ω_centripetal = (a_y − bias_y) / v      # from: a_y = v·ω
+z = [ω_centripetal]
+H = [[0, 0, 0, 0, 1]]    # measures state[4] = ω
+
+R_centripetal = diag([2.0])    # high noise — indirect measurement
+```
+Uses lateral acceleration during turns to provide an independent ω estimate.
+
+All four updates follow the standard EKF correction:
+```
+y = z − H·state                                       # innovation
+S = H·P·Hᵀ + R                                       # innovation covariance
+K = P·Hᵀ·S⁻¹                                         # Kalman gain
+state ← state + K·y
+P     ← (I − K·H)·P
+```
+
+---
+
+#### Outlier Rejection (Mahalanobis Gating)
+
+Every update is guarded by `mahalanobis_gate(innovation, S, threshold)`:
+```
+d² = yᵀ · S⁻¹ · y
+if d² > threshold → reject measurement (no state update)
+```
+Threshold = 2,000,000 (effectively disabled — kept for safety only).
+
+---
 
 #### IMU Bias Calibration
 
-The first 75 IMU samples (while the robot is stationary) are averaged to estimate and remove accelerometer bias (`bias_x`, `bias_y`).
+The first **75 IMU samples** (robot must be stationary at start) are averaged:
+```python
+accel_bias_x = mean(accel_samples_x[:75])
+accel_bias_y = mean(accel_samples_y[:75])
+```
+After calibration completes, all accelerometer readings are corrected by subtracting the bias before measurement updates.
 
-#### EKF Hyperparameters
+---
 
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| `Q` | diag([0.01]×5) | Process noise covariance |
-| `R_imu_gyro` | 0.0030 (rad/s)² | Gyroscope noise |
-| `R_imu_accel` | 0.1907 (m/s²)² | Accelerometer noise |
-| `R_odom` | diag([0.0005, 0.0031]) | Wheel odometry noise [v, ω] |
-| `R_centripetal` | 2.0 (rad/s)² | Centripetal ω estimate noise |
-| Bias calibration | 75 samples | Stationary IMU samples for bias estimation |
-| TF publish rate | 50 Hz | Prevents RViz transform extrapolation |
+#### Hyperparameters
+
+| Parameter | Value | Where in Code |
+|-----------|-------|--------------|
+| `Q` | diag([0.01]×5) | `self.Q` in `__init__` |
+| `R_odom` | diag([0.0005, 0.0031]) | `self.R_odom` |
+| `R_gyro` | diag([0.0030]) | `self.R_imu_gyro` |
+| `R_accel` | diag([0.1907]) | `self.R_imu_accel` |
+| `R_centripetal` | diag([2.0]) | local in `imu_callback` |
+| Bias samples | 75 | `self.bias_samples_needed` |
+| TF publish rate | 50 Hz | `self.create_timer(0.02, ...)` |
+| Covariance cap | P[i,i] ≤ 10 (pos), 1 (θ), 5 (vel) | end of `ekf_predict` |
 
 ---
 
 ### 2.3 ICP Odometry Refinement
 
-ICP matches consecutive LiDAR scans to estimate the incremental transform and integrates it into a global pose. The EKF delta is used only as the **initial guess** for ICP (not directly in the output).
+ICP matches consecutive LiDAR scans to estimate the incremental robot transform and integrates it into a global pose.
+**Code:** `src/ekf_filter/scripts/part2/icp_odometry_node.py`
 
-#### Algorithm (per scan, 5 Hz)
+The EKF delta is used **only as the initial guess** — the final output is the ICP result blended with the EKF initial guess based on match quality.
 
-1. Convert `LaserScan` to 2D point cloud (range filter: `range_min < r < range_max`)
-2. Use EKF delta `[dx, dy, dθ]` as the initial transform
-3. **ICP loop** (max 200 iterations, tolerance 1×10⁻⁵):
-   - Build KD-tree on target scan
-   - Find nearest-neighbor correspondences (distance < 1.2 m)
-   - Reject outlier pairs
-   - Compute optimal rotation `R` via SVD on cross-covariance: `H = src_c.T · tgt_c`
-   - Extract translation: `t = tgt_mean − R·src_mean`
-   - Update accumulated transform; check convergence
-4. **Adaptive blending** of ICP result with EKF initial guess:
-   - Quality score = `n_correspondences / max_correspondences × (1 − normalized_error)`
-   - High quality → low EKF trust (min 5%)
-   - Low quality → high EKF trust (max 35%)
-   - Rotation gets extra +10% EKF trust (IMU gyro is more reliable than scan matching for heading)
-   - If ICP diverges or has < 20 correspondences → use EKF 100%
-5. Integrate final `[dx, dy, dθ]` into global pose
+---
+
+#### Step 1 — Scan-to-Points Conversion (`scan_to_points`)
+
+Every incoming `LaserScan` message is converted to an `Nx2` NumPy array:
+
+```
+for each range r in scan.ranges:
+    if range_min < r < range_max:
+        x = r · cos(angle)
+        y = r · sin(angle)
+    angle += angle_increment
+```
+
+Scans with fewer than 10 valid points are discarded (`current_points.shape[0] < 10`).
+
+---
+
+#### Step 2 — EKF Delta as Initial Guess (`scan_callback`)
+
+Before ICP runs, the EKF pose delta since the last scan is computed and transformed to the robot frame:
+
+```
+dx_global = ekf_x − x           # EKF position delta in global frame
+dy_global = ekf_y − y
+dtheta    = normalize(ekf_theta − theta)
+
+dx = dx_global · cos(theta) + dy_global · sin(theta)   # rotate to robot frame
+dy = −dx_global · sin(theta) + dy_global · cos(theta)
+```
+
+This pre-aligns the source scan before ICP begins, reducing the number of iterations needed.
+
+---
+
+#### Step 3 — ICP Loop (`icp`, max 200 iterations, tol = 1×10⁻⁵)
+
+```
+source_transformed = transform_points(source, dx, dy, dtheta)   # apply initial guess
+tree = KDTree(target)                                            # build KD-tree once
+
+for iteration in range(max_iterations):
+    distances, indices = tree.query(source_transformed)          # nearest-neighbor search
+
+    valid = distances < max_correspondence_dist (1.2 m)          # filter by distance
+    if sum(valid) < 10: break (not converged)
+
+    dt = compute_transformation(source_transformed[valid],
+                                target[indices[valid]])           # SVD step (see below)
+
+    # Compose incremental transform (2D rigid-body composition):
+    dtheta_old = dtheta
+    dtheta = normalize(dtheta + dt[2])
+    dx += dt[0] · cos(dtheta_old) − dt[1] · sin(dtheta_old)
+    dy += dt[0] · sin(dtheta_old) + dt[1] · cos(dtheta_old)
+
+    source_transformed = transform_points(source, dx, dy, dtheta)
+
+    error = mean(distances[valid])
+    if |prev_error − error| < tol: converged = True; break
+    prev_error = error
+```
+
+---
+
+#### Step 3a — SVD Transformation (`compute_transformation`)
+
+Given `N` matched point pairs `(source[i], target[i])`:
+
+```
+μ_src = mean(source, axis=0)                   # source centroid
+μ_tgt = mean(target, axis=0)                   # target centroid
+src_c = source − μ_src                         # centered source
+tgt_c = target − μ_tgt                         # centered target
+
+H = src_c.T @ tgt_c                            # 2×2 cross-covariance matrix
+U, S, Vt = svd(H)                              # singular value decomposition
+R = Vt.T @ U.T                                 # optimal rotation (2×2)
+
+if det(R) < 0:                                 # correct reflection (det must = +1)
+    Vt[-1, :] *= -1
+    R = Vt.T @ U.T
+
+dtheta = atan2(R[1,0], R[0,0])                # extract rotation angle
+t = μ_tgt − R @ μ_src                         # optimal translation
+```
+
+Returns `[t[0], t[1], dtheta]` — the transformation that best aligns the matched pairs.
+
+---
+
+#### Step 4 — Adaptive EKF Blending (`scan_callback`)
+
+After ICP finishes, the result is blended with the EKF initial guess based on ICP match quality.
+
+**Quality scoring:**
+```
+corr_score  = min(num_correspondences / 50.0, 1.0)     # ≥50 matches → score = 1.0
+error_score = max(0, 1.0 − final_error / 0.3)          # <0.3 m error → score = 1.0
+quality     = (corr_score + error_score) / 2.0          # combined [0, 1]
+```
+
+**Trust assignment:**
+```
+if not converged or num_correspondences < 20:
+    ekf_trust = 1.0                                      # poor ICP → use EKF 100%
+else:
+    ekf_trust = max_ekf_trust − quality · (max_ekf_trust − min_ekf_trust)
+    # high quality → ekf_trust ≈ min_ekf_trust = 0.05  (trust ICP 95%)
+    # low quality  → ekf_trust ≈ max_ekf_trust = 0.35  (trust ICP 65%)
+
+rotation_trust = min(1.0, ekf_trust + rotation_ekf_bonus)   # +0.10 for heading
+```
+
+**Blending:**
+```
+dx_icp    = ekf_trust · dx      + (1 − ekf_trust)    · dx_icp
+dy_icp    = ekf_trust · dy      + (1 − ekf_trust)    · dy_icp
+dtheta_icp= rotation_trust·dtheta + (1−rotation_trust) · dtheta_icp
+```
+
+---
+
+#### Step 5 — Global Pose Integration
+
+```
+self.x     += dx_icp · cos(theta) − dy_icp · sin(theta)
+self.y     += dx_icp · sin(theta) + dy_icp · cos(theta)
+self.theta  = normalize(theta + dtheta_icp)
+```
+
+---
 
 #### ICP Hyperparameters
 
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| `max_iterations` | 200 | Maximum ICP iterations per scan |
-| `tolerance` | 1×10⁻⁵ | Convergence threshold (mean error change) |
-| `max_correspondence_dist` | 1.2 m | Maximum point-pair distance for matching |
-| `min_ekf_trust` | 5% | EKF weight at highest ICP quality |
-| `max_ekf_trust` | 35% | EKF weight at lowest ICP quality |
-| `rotation_ekf_bonus` | +10% | Extra EKF trust for heading (gyro is accurate) |
-| `min_correspondences` | 20 | Minimum matches; below this use EKF 100% |
+| Parameter | Value | Variable in Code |
+|-----------|-------|-----------------|
+| `max_iterations` | 200 | `self.max_iterations` |
+| `tolerance` | 1×10⁻⁵ | `self.tolerance` |
+| `max_correspondence_dist` | 1.2 m | `self.max_correspondence_dist` |
+| `min_ekf_trust` | 5% | `self.min_ekf_trust` |
+| `max_ekf_trust` | 35% | `self.max_ekf_trust` |
+| `rotation_ekf_bonus` | +10% | `self.rotation_ekf_bonus` |
+| `min_correspondences` | 20 | hard-coded in `scan_callback` |
+| corr normalizer | 50 | `min(num_corr / 50.0, 1.0)` |
+| error normalizer | 0.3 m | `1.0 - final_error / 0.3` |
 
 ---
 
