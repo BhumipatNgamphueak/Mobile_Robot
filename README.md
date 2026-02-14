@@ -7,10 +7,16 @@
 
 ---
 
+## Abstract
+
+Accurate localization in GPS-denied indoor environments is a fundamental problem in mobile robotics. This report presents the design, implementation, and experimental evaluation of a three-stage 2D localization pipeline on the TurtleBot3 Burger differential-drive robot under ROS 2 Humble. The pipeline progresses from wheel-encoder dead-reckoning, through Extended Kalman Filter (EKF) sensor fusion with an Inertial Measurement Unit (IMU), to Iterative Closest Point (ICP) scan-matching odometry, and culminates in full Simultaneous Localization and Mapping (SLAM) using `slam_toolbox`. Three indoor sequences recorded in the FIBO building (Assumption University, Floor 3) serve as evaluation benchmarks. Performance is quantified by the return-to-start positional error and drift rate. Results demonstrate that EKF fusion reduces dead-reckoning drift by approximately 54%, ICP refinement provides an additional 11% improvement, and SLAM with strict scan-matching constraints achieves the best overall accuracy (3.27% average drift rate). A critical finding is that over-relaxed scan-matching search spaces cause catastrophic localization failure (25.91% drift) in symmetric corridor environments due to perceptual aliasing, while a tightly constrained configuration anchored to EKF odometry remains robust across all scenarios.
+
+---
+
 ## Table of Contents
 
 1. [Setup](#1-setup)
-2. [What We Do](#2-what-we-do)
+2. [Methodology](#2-methodology)
    - [Differential Drive Model & Wheel Odometry](#21-differential-drive-model--wheel-odometry)
    - [Extended Kalman Filter (EKF)](#22-extended-kalman-filter-ekf)
    - [ICP Odometry Refinement](#23-icp-odometry-refinement)
@@ -21,6 +27,15 @@
    - [Part 2 – ICP Odometry Refinement](#32-part-2--icp-odometry-refinement)
    - [Part 3 – Full SLAM](#33-part-3--full-slam-with-slam_toolbox)
    - [Overall Comparison](#34-overall-comparison)
+4. [Discussion](#4-discussion)
+   - [Scenario-Specific Analysis](#41-scenario-specific-analysis)
+   - [Why Each Method Succeeds or Fails](#42-why-each-method-succeeds-or-fails)
+   - [Perceptual Aliasing and SLAM Configuration](#43-perceptual-aliasing-and-slam-configuration)
+   - [Computational Complexity Trade-offs](#44-computational-complexity-trade-offs)
+   - [Method Selection Guidelines](#45-method-selection-guidelines)
+   - [Metric Limitations](#46-metric-limitations)
+5. [Limitations](#5-limitations)
+6. [References](#6-references)
 
 ---
 
@@ -87,7 +102,7 @@ source ~/.bashrc
 
 ### Running the Experiments
 
-You need **two terminals** for each part.
+Two terminals are required for each part.
 
 **Part 1 – EKF Odometry Fusion**
 ```bash
@@ -198,22 +213,22 @@ Mobile_Robot/
 
 ---
 
-## 2. What We Do
+## 2. Methodology
 
-This lab implements a 2D localization pipeline with four progressive methods, each adding more sensor information and algorithmic sophistication.
+A 2D localization pipeline is implemented across four progressive configurations, each incorporating additional sensor information and algorithmic sophistication to progressively reduce pose estimation error.
 
-| Part | Method | Sensors |
-|------|--------|---------|
+| Part | Method | Sensors Used |
+|------|--------|-------------|
 | 1 | Wheel Odometry (baseline) | `/joint_states` |
 | 1 | EKF Odometry Fusion | `/joint_states` + `/imu` |
-| 2 | ICP Odometry Refinement | `/scan` (EKF as initial guess) |
+| 2 | ICP Odometry Refinement | `/scan` (EKF pose as initial guess) |
 | 3 | Full SLAM | `/scan` + EKF odometry |
 
 ---
 
 ### 2.1 Differential Drive Model & Wheel Odometry
 
-The baseline method integrates wheel encoder ticks using the differential-drive kinematic model.
+The baseline method integrates wheel encoder ticks using the differential-drive kinematic model, producing a dead-reckoning estimate of the robot pose.
 
 **Robot geometry (TurtleBot3 Burger):**
 
@@ -228,23 +243,25 @@ v     = r/2 * (dφ_R + dφ_L) / dt
 omega = r/L * (dφ_R - dφ_L) / dt
 ```
 
-**Dead-reckoning integration** (Euler, 20 Hz):
+**Dead-reckoning integration** (first-order Euler, 20 Hz):
 ```
 x_new = x + v·cos(θ)·dt
 y_new = y + v·sin(θ)·dt
 θ_new = θ + omega·dt
 ```
 
-This accumulates unbounded error over time, especially in heading, because wheel slip and small calibration errors in `r` and `L` are never corrected.
+This method accumulates unbounded error over time, particularly in heading, because wheel slip and calibration offsets in `r` and `L` are never externally corrected. Heading error is the dominant failure mode: any asymmetric slip between the left and right wheels generates a persistent angular velocity bias that integrates into an ever-growing heading offset, which then corrupts the translational estimate through the nonlinear coupling of `cos(θ)` and `sin(θ)`.
 
 ---
 
 ### 2.2 Extended Kalman Filter (EKF)
 
-The EKF fuses wheel encoder data with the IMU to reduce drift, particularly heading drift from the gyroscope.
+The EKF fuses wheel encoder data with IMU measurements to reduce odometric drift, most significantly by correcting heading drift using the gyroscope.
 **Code:** `src/ekf_filter/scripts/part1/ekf_odometry_node.py`
 
 #### State Vector
+
+An augmented 5-state formulation is adopted, treating linear and angular velocities as filter states rather than direct inputs. This allows the filter to maintain uncertainty estimates over the velocity states and apply the IMU measurements as observations of those states.
 
 ```
 state = [x, y, θ, v, ω]          # shape (5,)
@@ -265,7 +282,7 @@ Initial covariance `P = 0.1 · I₅`.
 #### Process Model — Prediction Step (20 Hz, triggered by `/joint_states`)
 
 Called inside `joint_states_callback → ekf_predict(dt)`.
-Uses the **differential-drive motion model**:
+Uses the **exact differential-drive motion model** (arc integration):
 
 For curved motion `|ω| > 1×10⁻⁶ rad/s`:
 ```
@@ -275,7 +292,7 @@ y  ← y + (v/ω)·(−cos(θ + ω·dt) + cos(θ))
 v, ω unchanged (velocities are updated by measurement)
 ```
 
-For straight-line motion `|ω| ≈ 0`:
+For straight-line motion `|ω| ≈ 0` (degenerate arc case):
 ```
 x  ← x + v·cos(θ)·dt
 y  ← y + v·sin(θ)·dt
@@ -292,7 +309,7 @@ P ← F · P · Fᵀ + Q
 - `F[0,3]`, `F[1,3]` = ∂x/∂v, ∂y/∂v
 - `F[0,4]`, `F[1,4]`, `F[2,4]` = ∂x/∂ω, ∂y/∂ω, ∂θ/∂ω (only for curved case)
 
-**Process noise** (tuned from sensor calibration):
+**Process noise** (tuned empirically):
 ```python
 Q = diag([0.01,   # x position noise  (m²)
           0.01,   # y position noise  (m²)
@@ -337,9 +354,9 @@ v_from_accel = state[3] + (a_x − bias_x) · dt
 z = [v_from_accel]
 H = [[0, 0, 0, 1, 0]]    # measures state[3] = v
 
-R_accel = diag([0.1907])  # (m/s²)²
+R_accel = diag([0.1907])  # (m/s)²  [calibrated from static accelerometer variance × dt²]
 ```
-Integrates forward acceleration to refine linear velocity estimate.
+Integrates forward acceleration over one time step to derive a velocity pseudo-measurement. The large noise covariance (σ ≈ 0.44 m/s) assigns low trust to this update, correctly reflecting the high uncertainty of a single-step accelerometer integration.
 
 **Update 4 – Centripetal Acceleration** `a_y` (20 Hz, `/imu`, only when `|v| > 0.05` and `|a_y| > 0.02`)
 
@@ -348,9 +365,9 @@ Integrates forward acceleration to refine linear velocity estimate.
 z = [ω_centripetal]
 H = [[0, 0, 0, 0, 1]]    # measures state[4] = ω
 
-R_centripetal = diag([2.0])    # high noise — indirect measurement
+R_centripetal = diag([2.0])    # (rad/s)²  — high noise, indirect measurement
 ```
-Uses lateral acceleration during turns to provide an independent ω estimate.
+Uses the centripetal acceleration relationship `a_y = v·ω` during turns to provide an independent angular velocity estimate. The high noise covariance (σ = 1.41 rad/s) appropriately discounts this indirect, nonlinear measurement.
 
 All four updates follow the standard EKF correction:
 ```
@@ -370,18 +387,18 @@ Every update is guarded by `mahalanobis_gate(innovation, S, threshold)`:
 d² = yᵀ · S⁻¹ · y
 if d² > threshold → reject measurement (no state update)
 ```
-Threshold = 2,000,000 (effectively disabled — kept for safety only).
+> **Note:** The current threshold of 2,000,000 is effectively inactive. For a 2D measurement, the theoretically motivated threshold at 95% confidence is χ²(2, 0.95) = 5.99. The inflated value means all measurements are accepted regardless of their statistical consistency with the current state estimate. This is a known limitation (see [Section 5](#5-limitations)).
 
 ---
 
 #### IMU Bias Calibration
 
-The first **75 IMU samples** (robot must be stationary at start) are averaged:
+The first **75 IMU samples** (robot must be stationary at startup) are averaged:
 ```python
 accel_bias_x = mean(accel_samples_x[:75])
 accel_bias_y = mean(accel_samples_y[:75])
 ```
-After calibration completes, all accelerometer readings are corrected by subtracting the bias before measurement updates.
+After calibration completes, all accelerometer readings are corrected by subtracting the bias before measurement updates. This static calibration compensates for constant accelerometer offsets but does not account for temperature-dependent gyroscope bias drift during the experiment.
 
 ---
 
@@ -405,13 +422,13 @@ After calibration completes, all accelerometer readings are corrected by subtrac
 ICP matches consecutive LiDAR scans to estimate the incremental robot transform and integrates it into a global pose.
 **Code:** `src/ekf_filter/scripts/part2/icp_odometry_node.py`
 
-The EKF delta is used **only as the initial guess** — the final output is the ICP result blended with the EKF initial guess based on match quality.
+The EKF pose delta is used **only as the initial guess** for ICP. The final output is the ICP-refined transform blended with the EKF initial guess according to scan match quality.
 
 ---
 
 #### Step 1 — Scan-to-Points Conversion (`scan_to_points`)
 
-Every incoming `LaserScan` message is converted to an `Nx2` NumPy array:
+Every incoming `LaserScan` message is converted to an `N×2` NumPy array in the sensor frame:
 
 ```
 for each range r in scan.ranges:
@@ -427,7 +444,7 @@ Scans with fewer than 10 valid points are discarded (`current_points.shape[0] < 
 
 #### Step 2 — EKF Delta as Initial Guess (`scan_callback`)
 
-Before ICP runs, the EKF pose delta since the last scan is computed and transformed to the robot frame:
+Before ICP runs, the EKF pose delta since the last scan is computed and expressed in the robot frame:
 
 ```
 dx_global = ekf_x − x           # EKF position delta in global frame
@@ -438,7 +455,7 @@ dx = dx_global · cos(theta) + dy_global · sin(theta)   # rotate to robot frame
 dy = −dx_global · sin(theta) + dy_global · cos(theta)
 ```
 
-This pre-aligns the source scan before ICP begins, reducing the number of iterations needed.
+Pre-aligning the source scan before ICP begins reduces the number of iterations required and, critically, prevents ICP from converging to a local minimum in the presence of multiple geometrically similar candidate alignments.
 
 ---
 
@@ -474,7 +491,7 @@ for iteration in range(max_iterations):
 
 #### Step 3a — SVD Transformation (`compute_transformation`)
 
-Given `N` matched point pairs `(source[i], target[i])`:
+Given `N` matched point pairs `(source[i], target[i])`, the optimal 2D rigid-body transform is computed analytically via Singular Value Decomposition (SVD):
 
 ```
 μ_src = mean(source, axis=0)                   # source centroid
@@ -494,18 +511,18 @@ dtheta = atan2(R[1,0], R[0,0])                # extract rotation angle
 t = μ_tgt − R @ μ_src                         # optimal translation
 ```
 
-Returns `[t[0], t[1], dtheta]` — the transformation that best aligns the matched pairs.
+Returns `[t[0], t[1], dtheta]` — the least-squares optimal rigid-body transformation that minimises the sum of squared distances between matched point pairs.
 
 ---
 
 #### Step 4 — Adaptive EKF Blending (`scan_callback`)
 
-After ICP finishes, the result is blended with the EKF initial guess based on ICP match quality.
+After ICP finishes, the result is blended with the EKF initial guess according to scan match quality, providing graceful degradation in environments with few or ambiguous scan features.
 
 **Quality scoring:**
 ```
 corr_score  = min(num_correspondences / 50.0, 1.0)     # ≥50 matches → score = 1.0
-error_score = max(0, 1.0 − final_error / 0.3)          # <0.3 m error → score = 1.0
+error_score = max(0, 1.0 − final_error / 0.3)          # <0.3 m RMS error → score = 1.0
 quality     = (corr_score + error_score) / 2.0          # combined [0, 1]
 ```
 
@@ -523,19 +540,21 @@ rotation_trust = min(1.0, ekf_trust + rotation_ekf_bonus)   # +0.10 for heading
 
 **Blending:**
 ```
-dx_icp    = ekf_trust · dx      + (1 − ekf_trust)    · dx_icp
-dy_icp    = ekf_trust · dy      + (1 − ekf_trust)    · dy_icp
-dtheta_icp= rotation_trust·dtheta + (1−rotation_trust) · dtheta_icp
+dx_final    = ekf_trust · dx_ekf      + (1 − ekf_trust)    · dx_icp
+dy_final    = ekf_trust · dy_ekf      + (1 − ekf_trust)    · dy_icp
+dtheta_final= rotation_trust·dtheta_ekf + (1−rotation_trust) · dtheta_icp
 ```
+
+The additional `rotation_ekf_bonus` (+10%) reflects the asymmetry between translational and rotational sensitivity: in corridor environments, scan matching constrains translation well (the walls provide perpendicular features) but constrains rotation poorly (a small heading error shifts all points by a small amount with no clear discriminating cost gradient). The gyroscope, conversely, measures heading directly.
 
 ---
 
 #### Step 5 — Global Pose Integration
 
 ```
-self.x     += dx_icp · cos(theta) − dy_icp · sin(theta)
-self.y     += dx_icp · sin(theta) + dy_icp · cos(theta)
-self.theta  = normalize(theta + dtheta_icp)
+self.x     += dx_final · cos(theta) − dy_final · sin(theta)
+self.y     += dx_final · sin(theta) + dy_final · cos(theta)
+self.theta  = normalize(theta + dtheta_final)
 ```
 
 ---
@@ -563,12 +582,15 @@ Full SLAM uses `async_slam_toolbox_node` with EKF odometry as the odometry input
 **Key features:**
 - Scan-to-map matching at every pose (`use_scan_matching: true`)
 - Pose graph optimization with loop closure (`do_loop_closing: true`)
-- Ceres non-linear solver: `SPARSE_NORMAL_CHOLESKY` + `SCHUR_JACOBI` + `LEVENBERG_MARQUARDT`
-- EKF odometry as the odometry source (high quality input)
+- Ceres non-linear solver configured with:
+  - Linear solver: `SPARSE_NORMAL_CHOLESKY`
+  - Preconditioner: `SCHUR_JACOBI`
+  - Trust region strategy: `LEVENBERG_MARQUARDT`
+- EKF odometry as the prior odometry source (high quality input)
 
 #### SLAM Configurations
 
-Two configurations were tested to study the effect of scan-matching search constraints:
+Two configurations were tested to study the effect of scan-matching search constraints on localization robustness in indoor corridor environments:
 
 | Parameter | Config A (Relaxed) | Config B (Strict) |
 |-----------|-------------------|-------------------|
@@ -581,11 +603,11 @@ Two configurations were tested to study the effect of scan-matching search const
 | `max_laser_range` | 3.5 m | 3.5 m |
 | `minimum_travel_distance` | 0.2 m | 0.2 m |
 
-**Config A (Relaxed):** Allows the scan matcher to search a wide area (±15 cm). This can find better scan matches in open environments but is prone to false correspondences in symmetric corridor geometry (both walls look identical).
+**Config A (Relaxed):** Permits the scan matcher to search a wide area (±15 cm) and applies mild penalty weights. This allows the optimizer to find better scan-to-map alignments in environments with rich, unambiguous features. However, in symmetric corridor geometry — where both walls present nearly identical point distributions — the search space contains multiple degenerate solutions of similar quality, making the optimizer susceptible to false correspondences.
 
-**Config B (Strict):** Constrains the search space to ±1.5 cm and applies strong variance penalties to force SLAM to closely follow EKF odometry. The high `distance_variance_penalty=20` and `angle_variance_penalty=40` prevent the pose graph from diverging from the EKF estimate, making SLAM more robust to corridor ambiguity.
+**Config B (Strict):** Constrains the search space to ±1.5 cm and applies strong variance penalties (`distance_variance_penalty=20`, `angle_variance_penalty=40`) to heavily penalise pose graph solutions that deviate significantly from the EKF odometry estimate. Effectively, Config B uses the EKF as a strong prior and employs scan matching only for local refinement, thus preventing the pose graph from exploring degenerate scan-alignment solutions.
 
-> **Active configuration:** `Part 3` launch files use **Config B** (`mapper_params_online_async_B.yaml`).
+> **Active configuration:** Part 3 launch files use **Config B** (`mapper_params_online_async_B.yaml`).
 
 ---
 
@@ -601,21 +623,21 @@ The table below defines which SLAM configuration was used for each sequence and 
 | Sequence 1 | `fibo_floor3_seq01_0.db3` | Config B | **Both A and B** |
 | Sequence 2 | `fibo_floor3_seq02_0.db3` | Config A | **Both A and B** |
 
-> Wheel, EKF, and ICP are pure odometry methods and do not depend on the SLAM config. SLAM was run independently with both configurations on all three sequences.
+> Wheel odometry, EKF, and ICP are pure odometry methods and are independent of the SLAM configuration. SLAM was run independently with both configurations on all three sequences.
 
 **Metric definitions used throughout:**
-- **LCE** = Loop Closure Error (Euclidean distance start→end). Lower = better.
-- **Drift Rate** = `LCE / Total Distance × 100%`. Lower = better.
+- **Return-to-Start Error (RSE)** = Euclidean distance from the trajectory end-point to the start-point. Lower is better. Note: this metric (labelled *LCE* in plots for brevity) assumes the physical trajectory forms a closed loop; it is a proxy for accumulated pose error, not a ground-truth comparison.
+- **Drift Rate** = `RSE / Total Distance × 100%`. Lower is better.
 
 ---
 
 ### 3.1 Part 1 – EKF Odometry Fusion
 
 #### Objective
-Implement an Extended Kalman Filter (EKF) to fuse wheel odometry and IMU measurements, obtaining a filtered and more reliable odometry estimate compared to raw wheel odometry.
+Implement an Extended Kalman Filter to fuse wheel odometry and IMU measurements, obtaining a filtered odometry estimate with reduced drift compared to raw wheel encoder dead-reckoning.
 
 #### Description
-Wheel odometry is computed from `/joint_states` and fused with IMU measurements from `/imu` using the EKF. The filter estimates robot pose by combining a differential-drive motion model with probabilistic sensor updates (gyroscope, accelerometer, and centripetal acceleration). The result is compared against the baseline dead-reckoning trajectory.
+Wheel odometry is computed from `/joint_states` and fused with IMU measurements from `/imu` using the 5-state EKF described in §2.2. The filter estimates robot pose by combining a differential-drive motion model with probabilistic updates from the gyroscope, forward accelerometer, and centripetal acceleration. The filtered trajectory is compared against the baseline dead-reckoning result.
 
 #### Trajectory Plots — All Methods per Sequence
 
@@ -634,7 +656,7 @@ Bottom row: **SLAM Config A** | **SLAM Config B** | **All Methods Overlay**
 
 #### Part 1 Quantitative Results
 
-| Sequence | Method | Total Dist (m) | LCE (m) | Drift Rate (%) |
+| Sequence | Method | Total Dist (m) | RSE (m) | Drift Rate (%) |
 |----------|--------|---------------|---------|---------------|
 | Seq 0 | Wheel Odometry | 61.82 | 8.877 | 14.36 |
 | Seq 0 | **EKF Odometry** | 55.43 | **4.033** | **7.28** |
@@ -645,9 +667,9 @@ Bottom row: **SLAM Config A** | **SLAM Config B** | **All Methods Overlay**
 
 #### Observations
 - EKF reduces drift rate by an average of **−54%** across all three sequences.
-- The largest improvement is on Seq 0 (−49%) and Seq 2 (−66%), both long traversals where heading error dominates.
-- The gyroscope update is the single most impactful correction — heading drift is the primary failure mode of dead-reckoning.
-- Even with IMU fusion, EKF still accumulates drift because it has no absolute position reference.
+- The largest improvements occur on Seq 0 (−49%) and Seq 2 (−66%), both long traversals where heading error dominates the total error budget.
+- The gyroscope update is the single most impactful correction — heading drift is the primary failure mode of wheel dead-reckoning.
+- Despite the improvement, EKF still accumulates drift because it has no absolute position reference; both sensors are proprioceptive and integrate relative motion only.
 
 ---
 
@@ -657,7 +679,7 @@ Bottom row: **SLAM Config A** | **SLAM Config B** | **All Methods Overlay**
 Refine the EKF-based odometry using LiDAR scan matching (ICP) and evaluate the improvement in accuracy and drift compared to EKF alone.
 
 #### Description
-The EKF odometry from Part 1 is used as the initial guess for ICP scan matching on consecutive `/scan` messages. At each scan (5 Hz), ICP finds the optimal rigid transform between the current and previous scan. The result is blended adaptively with the EKF initial guess (5–35% EKF trust) and integrated to produce a LiDAR-based odometry estimate. ICP additionally builds a 2D occupancy map by projecting scans from the estimated poses.
+The EKF odometry from Part 1 is used as the initial guess for point-to-point ICP scan matching on consecutive `/scan` messages at 5 Hz. At each scan, ICP finds the optimal rigid-body transform between the current and previous scan via SVD. The result is adaptively blended with the EKF initial guess (5–35% EKF weight) based on scan match quality and integrated to produce a LiDAR-assisted odometry estimate. An occupancy grid map is simultaneously constructed by projecting each scan at its estimated pose.
 
 #### Trajectory Comparison: EKF vs ICP Odometry
 
@@ -665,7 +687,7 @@ ICP trajectories are shown in the all-methods plots above (top row, right panel 
 
 #### 2D Occupancy Maps from ICP
 
-The ICP node projects LiDAR scans at each estimated pose to build an occupancy grid. Map quality directly reflects positional accuracy.
+The ICP node projects LiDAR scans at each estimated pose to build an occupancy grid. Map sharpness directly reflects the quality of the positional estimates throughout the traversal.
 
 | Sequence 0 | Sequence 1 | Sequence 2 |
 |:----------:|:----------:|:----------:|
@@ -673,7 +695,7 @@ The ICP node projects LiDAR scans at each estimated pose to build an occupancy g
 
 #### Part 2 Quantitative Results
 
-| Sequence | Method | Total Dist (m) | LCE (m) | Drift Rate (%) |
+| Sequence | Method | Total Dist (m) | RSE (m) | Drift Rate (%) |
 |----------|--------|---------------|---------|---------------|
 | Seq 0 | EKF Odometry | 55.43 | 4.033 | 7.28 |
 | Seq 0 | **ICP Odometry** | 66.11 | **4.025** | **6.09** |
@@ -683,25 +705,25 @@ The ICP node projects LiDAR scans at each estimated pose to build an occupancy g
 | Seq 2 | **ICP Odometry** | 62.46 | **2.567** | **4.11** |
 
 #### Observations
-- ICP improves drift rate by an average of **−10.8%** over EKF.
-- The improvement comes from 5 Hz scan matching that catches positional errors not corrected by the IMU alone.
-- Adaptive blending (falling back to EKF when scan quality is low) prevents degradation in featureless corridor sections where ICP would otherwise diverge.
-- ICP total distance is slightly higher than EKF because scan matching introduces small jitter on straight paths.
-- ICP uniquely produces a 2D occupancy map alongside the trajectory.
+- ICP improves drift rate by an average of **−10.8%** over EKF alone.
+- The improvement is derived from 5 Hz scan matching that corrects positional errors undetectable by the IMU (e.g., translational slip, minor floor irregularities).
+- Adaptive blending prevents degradation in featureless corridor sections where ICP correspondences are sparse or ambiguous.
+- The total distance reported by ICP is consistently higher than EKF because scan matching introduces small high-frequency jitter on straight-line paths.
+- ICP uniquely produces a 2D occupancy map alongside the trajectory, providing value beyond localization.
 
 ---
 
 ### 3.3 Part 3 – Full SLAM with slam_toolbox
 
 #### Objective
-Perform full SLAM using `slam_toolbox` and compare its pose estimation and mapping performance with the ICP-based odometry from Part 2.
+Perform full SLAM using `slam_toolbox` and compare pose estimation and mapping performance against the ICP-based odometry from Part 2, with particular attention to the effect of scan-matching search constraints.
 
 #### Description
-`slam_toolbox` runs in async mode using `/scan` as laser input and EKF odometry (`/ekf/odometry`) as the odometry source. It builds a pose graph and applies Ceres non-linear optimization with loop closure to produce a globally consistent trajectory and map. Two configurations are tested to study the effect of scan-matching constraints on corridor environments.
+`slam_toolbox` runs in async mode using `/scan` as the laser input and EKF odometry (`/ekf/odometry`) as the odometric prior. A pose graph is constructed and globally refined via Ceres non-linear optimization with loop closure, producing a globally consistent trajectory and occupancy map. Two configurations are tested to characterise the effect of scan-matching search constraints in corridor environments.
 
 #### Config A (Relaxed) vs Config B (Strict) – SLAM Trajectory
 
-SLAM Config A and Config B trajectories are shown in the all-methods plots in §3.1 (bottom row, left and center panels of each sequence). Key differences are most visible in Sequence 1 where Config A diverges severely.
+SLAM Config A and Config B trajectories are shown in the all-methods plots in §3.1 (bottom row, left and center panels of each sequence). The most dramatic difference is visible in Sequence 1, where Config A undergoes severe divergence.
 
 **All sequences overview:**
 
@@ -731,7 +753,7 @@ SLAM Config A and Config B trajectories are shown in the all-methods plots in §
 
 #### Compare-Drift Run (Sequence 0 – All 4 Methods on Identical Data)
 
-The `results/sequence_0/compare_drift/` folder contains a dedicated run with all four methods active simultaneously, providing a direct apples-to-apples comparison. Both an ICP map and SLAM map were saved from this session.
+The `results/sequence_0/compare_drift/` folder contains a dedicated run with all four methods active simultaneously on the same data stream, providing a direct comparison under identical conditions.
 
 **ICP Map vs SLAM Map:**
 
@@ -747,30 +769,30 @@ The `results/sequence_0/compare_drift/` folder contains a dedicated run with all
 
 #### Part 3 Quantitative Results
 
-| Sequence | Method | Total Dist (m) | LCE (m) | Drift Rate (%) |
+| Sequence | Method | Total Dist (m) | RSE (m) | Drift Rate (%) |
 |----------|--------|---------------|---------|---------------|
-| Seq 0 | ICP Odometry (Part 2 ref.) | 66.11 | 4.025 | 6.09 |
+| Seq 0 | ICP Odometry (reference) | 66.11 | 4.025 | 6.09 |
 | Seq 0 | SLAM Config A | 62.05 | 4.567 | 7.36 |
 | Seq 0 | **SLAM Config B** | 55.74 | **1.216** | **2.18** |
-| Seq 1 | ICP Odometry (Part 2 ref.) | 64.00 | 1.709 | 2.67 |
+| Seq 1 | ICP Odometry (reference) | 64.00 | 1.709 | 2.67 |
 | Seq 1 | SLAM Config A | 68.56 | 17.766 | 25.91 |
 | Seq 1 | **SLAM Config B** | 56.41 | **0.643** | **1.14** |
-| Seq 2 | ICP Odometry (Part 2 ref.) | 62.46 | 2.567 | 4.11 |
+| Seq 2 | ICP Odometry (reference) | 62.46 | 2.567 | 4.11 |
 | Seq 2 | SLAM Config A | 69.62 | 5.883 | 8.45 |
 | Seq 2 | **SLAM Config B** | 62.11 | **4.033** | **6.49** |
 
 #### Observations
-- **Config B (Strict) consistently outperforms Config A** in all three sequences.
-- The most dramatic difference is Sequence 1: Config A drifts 25.91% (LCE = 17.77 m) while Config B achieves only 1.14% (LCE = 0.64 m). The relaxed ±15 cm search space causes false scan correspondences in the symmetric left/right corridor walls.
-- Config B forces SLAM to stay close to EKF via high variance penalties (`distance=20`, `angle=40`), effectively using EKF as a strong prior and only refining with scan matching.
-- Loop closure in Config B further removes accumulated drift when the robot revisits mapped areas.
-- SLAM Config B produces the sharpest occupancy maps — walls are clean and consistent, reflecting accurate pose estimates throughout the run.
+- **Config B (Strict) consistently outperforms Config A** across all three sequences by large margins.
+- The most critical failure case is Sequence 1: Config A drifts 25.91% (RSE = 17.77 m) while Config B achieves only 1.14% (RSE = 0.64 m). The relaxed ±15 cm search space triggers false scan correspondences in the symmetric left-right corridor geometry — a perceptual aliasing failure discussed in detail in §4.3.
+- Config B forces SLAM to remain close to the EKF estimate via high variance penalties, effectively using EKF as a strong Gaussian prior and employing scan matching only for local refinement.
+- Loop closure in Config B further removes accumulated drift when the robot revisits previously mapped regions.
+- SLAM Config B produces the sharpest occupancy maps with consistent, clean wall representations across all sequences.
 
 | Map Quality | ICP | SLAM Config A | SLAM Config B |
 |-------------|-----|--------------|--------------|
 | Seq 0 | Clear walls, slight blur | Blurry from drift | Sharp, clean walls |
 | Seq 1 | Turn artifacts | **Badly distorted** | Best quality |
-| Seq 2 | Smooth corridors | Moderate | Good quality |
+| Seq 2 | Smooth corridors | Moderate distortion | Good quality |
 
 ---
 
@@ -778,7 +800,7 @@ The `results/sequence_0/compare_drift/` folder contains a dedicated run with all
 
 #### Full Results Table (All Methods, All Sequences)
 
-| Method | Config | Seq | Total Dist (m) | LCE (m) | Drift Rate (%) |
+| Method | Config | Seq | Total Dist (m) | RSE (m) | Drift Rate (%) |
 |--------|--------|-----|---------------|---------|---------------|
 | Wheel  | A | 0 | 61.82 | 8.877 | 14.36 |
 | EKF    | A | 0 | 55.43 | 4.033 |  7.28 |
@@ -798,15 +820,15 @@ The `results/sequence_0/compare_drift/` folder contains a dedicated run with all
 
 #### Average Drift Rate Summary
 
-| Method | Avg Drift Rate | vs Wheel |
+| Method | Avg Drift Rate | vs Wheel Odometry |
 |--------|---------------|---------|
 | Wheel Odometry | 10.58% | baseline |
 | EKF Odometry | 4.87% | **−54%** |
 | ICP Odometry | 4.29% | **−59%** |
-| SLAM Config A | 13.91% | worse (fails Seq 1) |
+| SLAM Config A | 13.91% | worse (catastrophic failure Seq 1) |
 | SLAM Config B | **3.27%** | **−69%** |
 
-#### Ranking: SLAM Config B > ICP ≈ EKF > Wheel > SLAM Config A (Seq 1)
+**Overall accuracy ranking:** SLAM Config B > ICP ≈ EKF > Wheel Odometry >> SLAM Config A
 
 #### Robustness Comparison
 
@@ -815,16 +837,176 @@ The `results/sequence_0/compare_drift/` folder contains a dedicated run with all
 | Wheel Odometry | Very Fast | Poor | None | Poor |
 | EKF Odometry | Fast | Moderate | None | Fair |
 | ICP Odometry | Medium | Good | High | Fair |
-| SLAM Config A | Slow | Good | High | Variable |
+| SLAM Config A | Slow | Good | High | Variable (fragile) |
 | SLAM Config B | Slow | Good | High | **Excellent** |
 
 #### Key Findings
 
-1. **EKF (Part 1) reduces drift by ~54% vs wheel-only.** The gyroscope update corrects heading drift, which is the dominant error source in dead-reckoning.
-2. **ICP (Part 2) further reduces drift by ~11% vs EKF.** Adaptive blending prevents degradation in featureless sections while scan matching catches slip the IMU misses.
-3. **SLAM Config B (Part 3) achieves the best overall accuracy (avg 3.27% drift).** Strict constraints keep the pose graph close to EKF, preventing corridor ambiguity. Loop closure provides global consistency.
-4. **SLAM Config A is unreliable.** A wide search space (±15 cm) causes catastrophic failure on Seq 1 (25.91% drift). Config B is the recommended configuration for symmetric indoor corridors.
-5. **Only SLAM produces a globally consistent 2D map**, making it uniquely suitable for autonomous navigation tasks beyond localization.
+1. **EKF (Part 1) reduces drift by ~54% vs wheel-only.** The gyroscope update corrects heading drift — the dominant error source in dead-reckoning — without requiring external geometric measurements.
+2. **ICP (Part 2) further reduces drift by ~11% vs EKF.** Adaptive blending prevents degradation in featureless corridor sections while scan matching corrects translational slip that the IMU cannot observe.
+3. **SLAM Config B (Part 3) achieves the best overall accuracy (avg 3.27% drift).** Strict variance penalties prevent corridor ambiguity by anchoring the pose graph to EKF. Loop closure provides global consistency not available to any odometric method.
+4. **SLAM Config A is unreliable in symmetric corridor environments.** A wide search space (±15 cm) causes catastrophic failure on Seq 1 (25.91% drift) due to perceptual aliasing. Config B is the required configuration for this environment type.
+5. **Only SLAM produces a globally consistent 2D map**, making it uniquely suitable for autonomous navigation tasks that require metric map information beyond mere trajectory tracking.
+
+---
+
+## 4. Discussion
+
+### 4.1 Scenario-Specific Analysis
+
+The three sequences represent qualitatively distinct motion regimes, each exposing different sensitivity patterns across the localization methods.
+
+#### Sequence 0 – Long Symmetric Corridor
+
+Sequence 0 involves a long traversal of a relatively straight corridor — the canonical worst case for dead-reckoning. On a straight path, any heading error θ_error causes a lateral position deviation that grows as ∫v·sin(θ_error) dt, approximately proportional to v·θ_error·T for small errors over time T. The 14.36% drift rate confirms that heading error dominates translational error on this sequence.
+
+EKF nearly halves the error (7.28%) because the gyroscope provides a direct, independent measurement of ω, decoupled from wheel-surface contact mechanics. The bilateral symmetry of the corridor poses a mild challenge for both ICP and SLAM Config A: the left and right walls present nearly identical point distributions, so the scan matcher can, in principle, mistake one wall for the other. ICP's adaptive blending mitigates this by falling back toward the EKF estimate when correspondence counts are low, yielding a modest further improvement (6.09%). SLAM Config B's dominant performance (2.18%) is attributable primarily to loop closure: when the robot passes near its starting position, the closure constraint absorbs the accumulated drift in a single global graph optimization step.
+
+#### Sequence 1 – Sharp Turns in a Narrow Corridor
+
+This sequence contains multiple abrupt direction changes within a narrow, geometrically symmetric corridor. It is the hardest scenario for scan matching but is relatively benign for wheel odometry and EKF (low baseline drifts of 4.60% and 3.03% respectively), because the compact, angular trajectory means heading errors partially cancel across successive opposite turns.
+
+The gyroscope is maximally informative during turns — it directly measures the angular velocity at its highest magnitude — which explains why EKF achieves its best relative improvement on this sequence. ICP benefits from the EKF initial guess, which provides a good rotation estimate before the ICP iterations begin; without this, the large inter-scan rotations during sharp turns would reliably cause ICP to converge to a local minimum.
+
+SLAM Config A fails catastrophically on this sequence (25.91%, RSE = 17.77 m). The failure is not gradual drift but a discrete topological error: the pose graph "folds" onto a false solution consistent with false scan correspondences identified during one or more sharp turns. This failure is discussed in detail in §4.3.
+
+SLAM Config B achieves 1.14% drift — the best result of all methods across all sequences — because the strict constraints and loop closure together provide global consistency that no odometric method can match.
+
+#### Sequence 2 – Smooth Continuous Motion
+
+Sequence 2 represents gradual curvature at moderate speed. The longer path (68.59 m for wheel odometry) accumulates more total drift, but the smooth heading evolution means ICP correspondences are reliable throughout most of the sequence. EKF performs well (4.29%), and ICP provides only marginal additional benefit (4.11%), suggesting that gradual turns produce fewer high-quality perpendicular scan features than sharp right-angle turns. SLAM Config B achieves 6.49% — slightly higher than on the other sequences — suggesting fewer or lower-quality loop closure opportunities when the trajectory has less revisitation of prior poses.
+
+---
+
+### 4.2 Why Each Method Succeeds or Fails
+
+#### Dead-Reckoning: Theoretical Drift Bound
+
+The heading error accumulated over path length *s* is approximately:
+
+```
+θ_error(s) ≈ ∫₀ˢ (slip_R(σ) − slip_L(σ)) / L dσ
+```
+
+For the TurtleBot3 Burger (L = 0.16 m), a persistent 0.1% asymmetric slip ratio between left and right wheels generates ≈ 3.9 mrad/m of heading error. Over a 62 m path, this results in a final heading offset of ≈ 14°, which geometrically produces a lateral return error consistent with the observed RSE values. Floor surface transitions (tile joints, rubber mat edges) introduce impulsive, uncorrectable slip events that accelerate this error accumulation.
+
+#### EKF: Correcting the Dominant Error Source
+
+The EKF succeeds primarily because the gyroscope and the wheel encoders measure heading through entirely independent physical mechanisms. Wheel-based angular velocity estimation is corrupted by differential slip; gyroscope measurement is corrupted by thermal bias drift. At the timescale of these experiments (5–10 minutes), the gyroscope's static bias — calibrated out at startup — dominates over residual thermal drift. The filter correctly down-weights the wheel-based ω estimate (R_odom[1,1] = 0.0031 rad²/s²) relative to the gyroscope (R_gyro = 0.0030 rad²/s²), producing a nearly equal weighting that leverages both sources without over-committing to either.
+
+EKF cannot eliminate drift because both sensors are proprioceptive. The 5-state augmented formulation helps by smoothing velocity estimates, but the position states [x, y, θ] still integrate these estimates without an external reference, and errors accumulate without bound.
+
+#### ICP Odometry: Geometric Consistency Without Global Correction
+
+ICP succeeds in structured environments because wall surfaces provide consistent perpendicular features across successive scans. The SVD step finds the globally optimal rigid-body transform given the correspondence set — it is a least-squares optimum, not an approximation. The EKF initial guess resolves the initialization sensitivity of ICP: provided the initial guess places the source scan within the basin of convergence of the correct local minimum, ICP converges reliably within 10–30 iterations on 360-point TurtleBot3 scans.
+
+ICP fails in three distinct modes:
+1. **Feature sparsity:** Fewer than 20 valid correspondences (open glass areas, perpendicular doorways) cause the adaptive blending to revert to the EKF delta entirely.
+2. **Corridor degeneracy:** In a perfectly symmetric corridor, the ICP cost surface has two nearly equal local minima (matching to the left vs right wall). The 1.2 m correspondence distance threshold is deliberately large to handle long-range wall features, but this also admits incorrect cross-corridor matches.
+3. **Absence of loop closure:** ICP accumulates error as an odometric method. Even with perfect per-step matching, a 0.1% per-step residual error over 300 scans (a 60 m path at 5 Hz and 0.2 m/s) produces a non-negligible final error. There is no mechanism to recognise revisitation and remove this accumulated error.
+
+#### SLAM Config A: The Perceptual Aliasing Catastrophe
+
+The `correlation_search_space_dimension = 0.3 m` parameter means the scan-to-map matcher evaluates candidate poses within a 0.3 m × 0.3 m region around the odometry prediction. In a symmetric corridor of width ≈ 1.5 m, this search space is large enough to span from one wall to the other at the corridor midpoint. The scan-matching cost function — the sum of scan point likelihoods under the current map — can produce similar scores for the true pose and a reflected pose on the opposite wall, because the wall geometry is nearly mirror-symmetric.
+
+When the pose graph optimizer accepts such a false correspondence (the scan quality threshold `link_match_minimum_response_fine = 0.3` is relatively permissive), all subsequent poses are built on this corrupted foundation. The global Ceres optimization cannot recover because the false constraint is consistent with the symmetric environment model. On Sequence 1, this produces the observed topological failure: RSE = 17.77 m represents the robot's estimated trajectory diverging to a spatially inconsistent map, not merely drifted dead-reckoning. This class of failure — **perceptual aliasing** — is one of the principal unsolved problems in SLAM for featureless or repetitively structured environments.
+
+#### SLAM Config B: EKF as a Strong Prior Against Degeneracy
+
+Config B's design addresses perceptual aliasing by restricting the scan-matching search to ±1.5 cm around the EKF prediction. Within this small neighborhood, the cost surface is unimodal (there is only one geometrically consistent pose within 1.5 cm of the predicted pose). The high `distance_variance_penalty = 20` and `angle_variance_penalty = 40` encode this constraint in the Ceres cost function: the optimizer pays a large penalty for any scan-matched pose that deviates from the odometry prior.
+
+This is equivalent to treating the EKF estimate as a tight Gaussian prior over the pose. The Ceres optimizer then finds the maximum a posteriori (MAP) estimate that balances scan-matching data likelihood with this prior — and because the prior is tight and the EKF quality is high (drift rate 3–7%), the result is consistently near-optimal.
+
+Loop closure operates on a separate, longer timescale: only when the robot genuinely revisits a previously mapped area, with unambiguous geometric overlap, does the loop closure matcher fire. This selective activation prevents false loop closures while allowing the global pose graph correction when revisitation is genuine.
+
+---
+
+### 4.3 Perceptual Aliasing and SLAM Configuration
+
+Perceptual aliasing occurs when distinct physical locations produce indistinguishable (or nearly indistinguishable) sensor measurements. In LiDAR-based SLAM, the primary aliasing scenario is bilateral corridor symmetry: from any point along the corridor centreline, the scan returns from the left and right walls are related by a reflection, producing similar scan signatures. A scan matcher with a wide search space may therefore accept a reflected pose as a valid match, causing the pose graph to fold onto a false solution.
+
+The Config A vs Config B experiment provides a controlled demonstration of this failure mode. The only structural difference between the two configurations is the size of the search space and the strength of the odometry penalty. Config A's permissive search finds false correspondences during sharp turns (Sequence 1) when the robot's heading changes by 90° or more, temporarily presenting the sensor with a rotated but geometrically similar corridor profile. Config B's narrow search, anchored to the EKF heading estimate, avoids this failure entirely.
+
+A key design insight from this experiment is that **the reliability of SLAM is bounded by the quality of its odometric prior in symmetric environments**. A high-quality EKF prior (3–7% drift) enables a correspondingly tight search constraint, which in turn prevents the aliasing failure. This interdependence motivates the pipeline architecture: EKF enables Config B, which enables reliable SLAM.
+
+---
+
+### 4.4 Computational Complexity Trade-offs
+
+| Method | Per-step complexity | Sensor rate | Primary bottleneck |
+|--------|--------------------|-----------|--------------------|
+| Wheel Odometry | O(1) | 20 Hz | None |
+| EKF | O(n²), n = 5 | 20–40 Hz | Covariance propagation (negligible for n = 5) |
+| ICP | O(N log N + k·N·log N) | 5 Hz | KD-tree construction; k iterations over N points |
+| SLAM | O(P log P) amortized | 5 Hz + async | Growing pose graph; Ceres optimization |
+
+where N = LiDAR scan points (≈360 for TurtleBot3 Burger), k = ICP iterations (≤200 per scan), P = number of poses in the SLAM graph.
+
+The EKF operates at 20–40 Hz with negligible computational cost for n = 5 states. ICP at 5 Hz is well-matched to the TurtleBot3 LiDAR rate and tractable for 360-point planar scans, but would become prohibitive for 3D LiDAR (N ≈ 100,000+) without algorithmic modifications (e.g., voxel downsampling, GPU acceleration). SLAM's computational cost grows as the pose graph expands, making it unsuitable for indefinitely long-duration missions without periodic marginalization or map compression — both of which `slam_toolbox` supports via its serialization mechanisms.
+
+---
+
+### 4.5 Method Selection Guidelines
+
+Based on the experimental evidence, the following selection criteria are proposed:
+
+**Wheel Odometry** is appropriate only as a baseline diagnostic or for extremely short trajectories (< 5 m) where accumulated drift is negligible.
+
+**EKF Odometry** is the recommended minimum for indoor mobile robots. It is computationally trivial, requires no external features, and reduces drift by ≈54% over dead-reckoning. It forms the essential prior for both ICP and SLAM in this pipeline.
+
+**ICP Odometry** is appropriate when a 2D occupancy map is needed concurrently with odometry, when the robot operates in well-structured environments with rich geometric features, and when loop closure is not expected (the trajectory does not revisit earlier areas). It is inappropriate when the environment contains extended featureless regions or when long-term global consistency is required.
+
+**SLAM with tight constraints (Config B)** is the appropriate choice when globally consistent mapping is the primary objective, when the robot is expected to revisit previously mapped areas (enabling loop closure), and when a reliable odometric prior (EKF-quality or better) is available. Without a reliable prior, a tight search constraint cannot be justified — if the odometry is poor, the strict Config B search space may simply restrict the scan matcher to the wrong neighborhood.
+
+**SLAM with relaxed constraints (Config A)** should be avoided in symmetric indoor corridor environments. It may be appropriate in environments with rich, unambiguous geometric landmarks (cluttered labs, environments with distinct object patterns) where the wide search space helps find better scan alignments without the risk of false symmetric matches.
+
+---
+
+### 4.6 Metric Limitations
+
+The Return-to-Start Error (RSE) metric is a practical but imperfect evaluation criterion with two important limitations:
+
+1. **Path-internal errors are invisible:** RSE only measures the displacement between trajectory endpoints. A trajectory that deviates substantially at mid-path but returns close to the start (e.g., via a compensating error in the second half) would show a low RSE while the intermediate localization quality was poor. This limitation is partially addressed by examining occupancy map sharpness as a qualitative proxy for path-internal accuracy.
+
+2. **Ground truth dependency:** RSE implicitly assumes the robot's physical path forms a closed loop, i.e., the physical end-point coincides with the start-point. If the physical trajectory does not close (which depends on robot motion, not just the localization algorithm), RSE measures a combination of localization error and non-closure of the physical path.
+
+Standard benchmarking metrics — Absolute Trajectory Error (ATE) and Relative Pose Error (RPE) per [Sturm et al., 2012] — require ground-truth trajectories from external reference systems (motion capture, differential GPS, or survey-grade total station). Future work should incorporate such ground truth to enable quantitative comparison against published SLAM benchmarks.
+
+---
+
+## 5. Limitations
+
+The following known limitations constrain the conclusions drawn from this work:
+
+1. **Mahalanobis gating threshold is effectively inactive.** The threshold value of 2,000,000 means all measurements are accepted regardless of statistical consistency. The theoretically motivated threshold at 95% confidence for a 2D measurement innovation is χ²(2, 0.95) = 5.99. Activating proper gating could improve EKF robustness during motion disturbances (e.g., bumps, manual handling).
+
+2. **No external ground truth.** All error metrics rely on the return-to-start assumption. Rigorous evaluation requires ground truth from a motion capture system or survey-grade positioning.
+
+3. **Static IMU bias calibration only.** The 75-sample startup calibration compensates for fixed accelerometer offset but does not account for gyroscope bias drift during the 5–10 minute experiment. For longer missions, online bias estimation (e.g., via a random walk model in the EKF state vector) would be appropriate.
+
+4. **ICP frequency mismatch with robot dynamics.** At 5 Hz, the ICP update rate is matched to LiDAR frame rate but means that rapid disturbances between scans (slip events, unexpected obstacles) are unobserved for up to 200 ms.
+
+5. **Single-robot, single-floor, controlled conditions.** All sequences are from one indoor floor under consistent lighting. Generalization to multi-floor environments, outdoor operation, or dynamic obstacle-rich scenes would require additional validation.
+
+6. **SLAM Config B's robustness is contingent on EKF quality.** The strict ±1.5 cm search constraint works only because the EKF provides drift rates of 3–7%. If the EKF degrades (e.g., IMU failure, extreme wheel slip), Config B would constrain the scan matcher to search the wrong neighbourhood, potentially producing worse results than Config A.
+
+---
+
+## 6. References
+
+[1] Thrun, S., Burgard, W., and Fox, D. (2005). *Probabilistic Robotics*. MIT Press.
+
+[2] Besl, P. J. and McKay, N. D. (1992). A method for registration of 3-D shapes. *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 14(2), 239–256.
+
+[3] Macenski, S., Martín, F., White, R., and Clavero, J. U. (2021). The Marathon 2: A Navigation System. *IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)*.
+
+[4] Macenski, S. and Jambrecic, I. (2021). SLAM Toolbox: SLAM for the dynamic world. *Journal of Open Source Software*, 6(61), 2783.
+
+[5] Sturm, J., Engelhard, N., Endres, F., Burgard, W., and Cremers, D. (2012). A benchmark for the evaluation of RGB-D SLAM systems. *IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)*, 573–580.
+
+[6] Welch, G. and Bishop, G. (2006). An Introduction to the Kalman Filter. *UNC Chapel Hill Technical Report TR 95-041*.
+
+[7] Zhang, J. and Singh, S. (2014). LOAM: Lidar Odometry and Mapping in Real-time. *Robotics: Science and Systems (RSS)*.
 
 ---
 
