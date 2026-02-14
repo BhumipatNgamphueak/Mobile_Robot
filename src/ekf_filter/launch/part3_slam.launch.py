@@ -16,7 +16,7 @@ def generate_launch_description():
 
     # Get package directory
     pkg_dir = get_package_share_directory('ekf_filter')
-    config_file = os.path.join(pkg_dir, 'config', 'mapper_params_online_async.yaml')
+    config_file = os.path.join(pkg_dir, 'config', 'mapper_params_online_async_B.yaml')
 
     # Launch arguments
     use_sim_time_arg = DeclareLaunchArgument(
@@ -36,15 +36,12 @@ def generate_launch_description():
         }],
     )
 
-    # Synchronized Republisher Node (ensures scan and odom have EXACTLY matching timestamps)
-    synchronized_republisher_node = Node(
-        package='differential_drive_model',
-        executable='synchronized_republisher_node.py',
-        name='synchronized_republisher_node',
+    # Scan Republisher Node (republishes scan with base_link frame and current timestamps)
+    scan_republisher_node = Node(
+        package='ekf_filter',
+        executable='scan_republisher_node.py',
+        name='scan_republisher_node',
         output='screen',
-        parameters=[{
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-        }],
     )
 
     # EKF Odometry Node (provides odometry for SLAM)
@@ -66,7 +63,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'use_sim_time': LaunchConfiguration('use_sim_time'),
-            'odom_topic': '/odom_republished',
+            'odom_topic': '/ekf/odometry',
             'path_topic': '/robot_path',
             'sample_rate': 5,  # Add pose every 5 odometry messages
         }],
@@ -85,11 +82,38 @@ def generate_launch_description():
         remappings=[]
     )
 
+    # Auto Map Saver Node (saves map automatically when rosbag finishes)
+    auto_map_saver_node = Node(
+        package='ekf_filter',
+        executable='auto_map_saver_node.py',
+        name='auto_map_saver_node',
+        output='screen',
+        parameters=[{
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+            'output_dir': '/home/prime/Mobile_Robot/results',
+            'map_name': 'slam_map',
+        }],
+    )
+
+    # SLAM Trajectory Saver Node (saves SLAM poses to CSV)
+    slam_trajectory_saver_node = Node(
+        package='ekf_filter',
+        executable='slam_trajectory_saver_node.py',
+        name='slam_trajectory_saver_node',
+        output='screen',
+        parameters=[{
+            'output_dir': '/home/prime/Mobile_Robot/results',
+            'output_file': 'slam_trajectory.csv',
+        }],
+    )
+
     return LaunchDescription([
         use_sim_time_arg,
+        scan_republisher_node,
         read_data_node,
-        synchronized_republisher_node,
         ekf_odom_node,
         path_publisher_node,
         slam_toolbox_node,
+        auto_map_saver_node,
+        slam_trajectory_saver_node,
     ])

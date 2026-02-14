@@ -14,7 +14,7 @@ class Read_data_Node(Node):
         super().__init__('read_data_node')
 
         # Path to the bag file
-        self.bag_path = '/home/prime/mobile_lab1/src/FRA532_LAB1_DATASET/fibo_floor3_seq00/fibo_floor3_seq00_0.db3'
+        self.bag_path = '/home/prime/Mobile_Robot/src/FRA532_LAB1_DATASET/fibo_floor3_seq02/fibo_floor3_seq02_0.db3'
 
         # Data storage
         self.scan_data = []
@@ -112,20 +112,26 @@ class Read_data_Node(Node):
             self.current_index = 0
             return
 
+        # Get current time for proper TF synchronization
+        current_time = self.get_clock().now().to_msg()
+
         # Publish IMU data (most frequent - 20 Hz)
         if self.current_index < len(self.imu_data):
             imu_msg = self.imu_data[self.current_index]['message']
+            imu_msg.header.stamp = current_time  # Update timestamp
             self.imu_pub.publish(imu_msg)
 
         # Publish Joint States data (20 Hz)
         if self.current_index < len(self.joint_states_data):
             js_msg = self.joint_states_data[self.current_index]['message']
+            js_msg.header.stamp = current_time  # Update timestamp
             self.joint_states_pub.publish(js_msg)
 
         # Publish Scan data (5 Hz - publish every 4th callback)
         scan_index = self.current_index // 4
         if self.current_index % 4 == 0 and scan_index < len(self.scan_data):
             scan_msg = self.scan_data[scan_index]['message']
+            scan_msg.header.stamp = current_time  # Update timestamp for TF sync
             self.scan_pub.publish(scan_msg)
 
         self.current_index += 1

@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """
 Part 2: ICP Odometry Node
-Uses ICP scan matching with EKF odometry as initial guess
+Pure ICP output, uses EKF odometry as initial guess only
 """
 
 import rclpy
@@ -34,7 +34,7 @@ class ICPOdometryNode(Node):
         self.y = 0.0
         self.theta = 0.0
 
-        # EKF state for initial guess
+        # EKF state for initial guess only
         self.ekf_x = 0.0
         self.ekf_y = 0.0
         self.ekf_theta = 0.0
@@ -46,21 +46,27 @@ class ICPOdometryNode(Node):
         # ICP parameters
         self.max_iterations = 200
         self.tolerance = 1e-5
-        self.max_correspondence_dist = 1.0  # TUNED: Allow more correspondences for noisy scans
+        self.max_correspondence_dist = 1.2  # Allow more correspondences (increased for better matching)
 
-        # Fusion parameters - BALANCED MODE
-        self.ekf_trust_weight = 0.25  # TUNED: 25% EKF, 75% ICP (more balanced)
-        self.max_icp_correction_trans = 0.15  # TUNED: Limit large ICP jumps (meters)
-        self.max_icp_correction_rot = 0.3  # TUNED: Limit large rotations (radians ≈ 17°)
-        self.enable_correction_limits = True  # ENABLED: Prevent ICP divergence
+        # Adaptive trust based on ICP quality
+        self.use_adaptive_trust = True  # Enable adaptive blending
+        self.min_ekf_trust = 0.05  # Minimal EKF influence when ICP is confident
+        self.max_ekf_trust = 0.35  # Moderate EKF trust when ICP is uncertain
+
+        # Separate trust for rotation (IMU gyro is very accurate)
+        self.rotation_ekf_bonus = 0.1  # Slight extra trust for rotation
 
         # Data logging
-        self.trajectory_file = '/home/prime/mobile_lab1/results/icp_odometry.csv'
+        self.trajectory_file = '/home/prime/Mobile_Robot/results/icp_odometry.csv'
         self.init_csv_file()
 
         self.scan_count = 0
 
-        self.get_logger().info(f'ICP Odometry Node initialized - Saving to: {self.trajectory_file}')
+        if self.use_adaptive_trust:
+            self.get_logger().info(f'ICP Odometry Node initialized (Adaptive trust: EKF {self.min_ekf_trust*100:.0f}%-{self.max_ekf_trust*100:.0f}%)')
+        else:
+            avg_trust = (self.min_ekf_trust + self.max_ekf_trust) / 2.0
+            self.get_logger().info(f'ICP Odometry Node initialized (EKF trust: {avg_trust*100:.0f}%, ICP: {(1-avg_trust)*100:.0f}%)')
 
     def init_csv_file(self):
         """Initialize CSV file"""
@@ -74,17 +80,12 @@ class ICPOdometryNode(Node):
         self.ekf_x = msg.pose.pose.position.x
         self.ekf_y = msg.pose.pose.position.y
 
-        # Extract yaw from quaternion (proper formula)
-        qx = msg.pose.pose.orientation.x
-        qy = msg.pose.pose.orientation.y
         qz = msg.pose.pose.orientation.z
         qw = msg.pose.pose.orientation.w
-        siny_cosp = 2 * (qw * qz + qx * qy)
-        cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
-        self.ekf_theta = math.atan2(siny_cosp, cosy_cosp)
+        self.ekf_theta = math.atan2(2.0 * qw * qz, 1.0 - 2.0 * qz * qz)
 
     def scan_callback(self, msg):
-        """Process laser scan with ICP"""
+        """Process laser scan with pure ICP (EKF as initial guess only)"""
         self.scan_count += 1
 
         # Convert scan to points
@@ -97,14 +98,12 @@ class ICPOdometryNode(Node):
         current_time = self.get_clock().now()
 
         if self.prev_scan_points is not None:
-            # Use EKF odometry as initial guess for transformation
-            # Compute delta in GLOBAL frame
+            # Use EKF delta as initial guess for ICP
             dx_global = self.ekf_x - self.x
             dy_global = self.ekf_y - self.y
             dtheta = self.normalize_angle(self.ekf_theta - self.theta)
 
-            # Convert global frame delta to LOCAL/ROBOT frame
-            # ICP needs relative motion in robot's coordinate system
+            # Convert to local/robot frame for ICP
             cos_theta = math.cos(self.theta)
             sin_theta = math.sin(self.theta)
             dx = dx_global * cos_theta + dy_global * sin_theta
@@ -114,67 +113,74 @@ class ICPOdometryNode(Node):
             T, icp_info = self.icp(self.prev_scan_points, current_points,
                         initial_transform=[dx, dy, dtheta])
 
-            # Extract transformation
-            dx_icp_raw = T[0]
-            dy_icp_raw = T[1]
-            dtheta_icp_raw = T[2]
+            # Get ICP result
+            dx_icp = T[0]
+            dy_icp = T[1]
+            dtheta_icp = T[2]
 
-            # Check ICP quality - increase EKF trust if ICP is uncertain
-            icp_quality_good = (
-                icp_info['converged'] and
-                icp_info['num_correspondences'] > 30 and  # TUNED: Require sufficient matches
-                icp_info['final_error'] < 0.08  # TUNED: Stricter error threshold
-            )
-
-            if not icp_quality_good:
-                # Poor ICP quality - trust EKF more
-                self.get_logger().warn(
-                    f'Poor ICP quality: converged={icp_info["converged"]}, '
-                    f'correspondences={icp_info["num_correspondences"]}, '
-                    f'error={icp_info["final_error"]:.3f} - Trusting EKF more'
+            # Debug: Show ICP vs EKF delta every 10 scans
+            if self.scan_count % 10 == 0:
+                self.get_logger().info(
+                    f'Motion - EKF: dx={dx:.3f}, dy={dy:.3f}, dtheta={dtheta:.3f} | '
+                    f'ICP: dx={dx_icp:.3f}, dy={dy_icp:.3f}, dtheta={dtheta_icp:.3f}'
                 )
-                # Boost EKF trust significantly when ICP is poor
-                alpha_effective = min(0.8, self.ekf_trust_weight + 0.4)
+
+            # Adaptive blending based on ICP quality
+            if not icp_info['converged'] or icp_info['num_correspondences'] < 20:
+                # Poor ICP - trust EKF completely
+                ekf_trust = 1.0
+                self.get_logger().warn(
+                    f'Poor ICP: converged={icp_info["converged"]}, '
+                    f'correspondences={icp_info["num_correspondences"]}, '
+                    f'error={icp_info["final_error"]:.3f} - Using EKF (trust=100%)'
+                )
             else:
-                # Good ICP quality - use base weight
-                alpha_effective = self.ekf_trust_weight
+                # Good ICP - compute adaptive trust based on match quality
+                if self.use_adaptive_trust:
+                    # Quality metrics
+                    num_corr = icp_info['num_correspondences']
+                    final_error = icp_info['final_error']
 
-            # Apply correction limits (if enabled)
-            if self.enable_correction_limits:
-                # Limit translation correction
-                trans_correction = math.sqrt((dx_icp_raw - dx)**2 + (dy_icp_raw - dy)**2)
-                if trans_correction > self.max_icp_correction_trans:
-                    self.get_logger().info(
-                        f'Translation limit activated: {trans_correction:.3f}m → {self.max_icp_correction_trans:.3f}m'
-                    )
-                    scale = self.max_icp_correction_trans / trans_correction
-                    dx_icp_raw = dx + (dx_icp_raw - dx) * scale
-                    dy_icp_raw = dy + (dy_icp_raw - dy) * scale
+                    # More correspondences = trust ICP more (very relaxed: 50 correspondences is enough)
+                    corr_score = min(num_corr / 50.0, 1.0)  # Normalize to [0,1]
 
-                # Limit rotation correction
-                rot_correction = abs(dtheta_icp_raw - dtheta)
-                if rot_correction > self.max_icp_correction_rot:
-                    self.get_logger().info(
-                        f'Rotation limit activated: {math.degrees(rot_correction):.1f}° → {math.degrees(self.max_icp_correction_rot):.1f}°'
-                    )
-                    if dtheta_icp_raw > dtheta:
-                        dtheta_icp_raw = dtheta + self.max_icp_correction_rot
-                    else:
-                        dtheta_icp_raw = dtheta - self.max_icp_correction_rot
+                    # Lower error = trust ICP more (very relaxed: <0.3m error is acceptable)
+                    error_score = max(0, 1.0 - (final_error / 0.3))  # <0.3m error is good
 
-            # Blend EKF and ICP estimates
-            # ekf_trust_weight = 0.0 means full ICP, 1.0 means full EKF
-            # Use alpha_effective which adjusts based on ICP quality
-            dx_final = alpha_effective * dx + (1 - alpha_effective) * dx_icp_raw
-            dy_final = alpha_effective * dy + (1 - alpha_effective) * dy_icp_raw
-            dtheta_final = alpha_effective * dtheta + (1 - alpha_effective) * dtheta_icp_raw
+                    # Combined quality score
+                    quality = (corr_score + error_score) / 2.0
 
-            # Update pose
+                    # High quality -> low EKF trust (trust ICP)
+                    # Low quality -> high EKF trust (trust EKF)
+                    ekf_trust = self.max_ekf_trust - quality * (self.max_ekf_trust - self.min_ekf_trust)
+
+                    # Debug logging every 10 scans
+                    if self.scan_count % 10 == 0:
+                        rotation_trust = min(1.0, ekf_trust + self.rotation_ekf_bonus)
+                        self.get_logger().info(
+                            f'ICP Quality: corr={num_corr} (score={corr_score:.2f}), '
+                            f'error={final_error:.3f}m (score={error_score:.2f}), quality={quality:.2f}\n'
+                            f'  → Translation: EKF {ekf_trust:.0%}, ICP {1-ekf_trust:.0%} | '
+                            f'Rotation: EKF {rotation_trust:.0%}, ICP {1-rotation_trust:.0%}'
+                        )
+                else:
+                    ekf_trust = (self.min_ekf_trust + self.max_ekf_trust) / 2.0
+
+            # Blend ICP with EKF (separate trust for translation vs rotation)
+            # Translation: use computed trust
+            dx_icp = ekf_trust * dx + (1 - ekf_trust) * dx_icp
+            dy_icp = ekf_trust * dy + (1 - ekf_trust) * dy_icp
+
+            # Rotation: trust EKF more (IMU gyro is very accurate)
+            rotation_trust = min(1.0, ekf_trust + self.rotation_ekf_bonus)
+            dtheta_icp = rotation_trust * dtheta + (1 - rotation_trust) * dtheta_icp
+
+            # Update pose in global frame (pure ICP output)
             cos_theta = math.cos(self.theta)
             sin_theta = math.sin(self.theta)
-            self.x += dx_final * cos_theta - dy_final * sin_theta
-            self.y += dx_final * sin_theta + dy_final * cos_theta
-            self.theta = self.normalize_angle(self.theta + dtheta_final)
+            self.x += dx_icp * cos_theta - dy_icp * sin_theta
+            self.y += dx_icp * sin_theta + dy_icp * cos_theta
+            self.theta = self.normalize_angle(self.theta + dtheta_icp)
 
             # Log and publish
             self.log_trajectory(current_time)

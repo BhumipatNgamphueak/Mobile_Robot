@@ -60,8 +60,8 @@ class WheelOdometryNode(Node):
         self.prev_time = None
 
         # Data logging
-        self.trajectory_file = '/home/prime/mobile_lab1/results/wheel_odometry.csv'
-        self.imu_file = '/home/prime/mobile_lab1/results/imu_data.csv'
+        self.trajectory_file = '/home/prime/Mobile_Robot/results/wheel_odometry.csv'
+        self.imu_file = '/home/prime/Mobile_Robot/results/imu_data.csv'
         self.init_csv_files()
 
         self.get_logger().info('Wheel Odometry Node initialized')

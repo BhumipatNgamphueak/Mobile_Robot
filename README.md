@@ -1,672 +1,495 @@
-# Mobile Robotics Lab: Odometry and SLAM
+# FRA532 Mobile Robotics – Lab 1: EKF / ICP / SLAM
 
-**Student Name:** [Your Name]
-**Student ID:** [Your ID]
-**Course:** Mobile Robotics (FRA502)
-**Lab Topic:** Odometry Methods Comparison - Wheel, EKF, ICP, and SLAM
-
----
-
-## 📋 Table of Contents
-
-1. [Overview](#overview)
-2. [System Requirements](#system-requirements)
-3. [Installation](#installation)
-4. [Lab Structure](#lab-structure)
-5. [Running the Experiments](#running-the-experiments)
-   - [Part 1: Wheel and EKF Odometry](#part-1-wheel-and-ekf-odometry)
-   - [Part 2: ICP Odometry](#part-2-icp-odometry)
-   - [Part 3: SLAM](#part-3-slam)
-6. [Generating Results](#generating-results)
-7. [Results and Analysis](#results-and-analysis)
-8. [Discussion](#discussion)
-9. [Source Code](#source-code)
-10. [References](#references)
+**Student:** Bhumipat Ngamphueak
+**ID:** 66340500043
+**Course:** FRA532 Mobile Robotics
+**Lab:** Lab 1 – EKF Odometry Fusion, ICP Refinement, and Full SLAM
 
 ---
 
-## Overview
+## Table of Contents
 
-This lab implements and compares four different odometry methods for mobile robot localization:
-
-1. **Wheel Odometry** - Dead reckoning using wheel encoders
-2. **EKF Odometry** - Extended Kalman Filter fusing wheel encoders and IMU
-3. **ICP Odometry** - Iterative Closest Point scan matching
-4. **SLAM** - Simultaneous Localization and Mapping with loop closure
-
-### Objectives
-
-- Understand different odometry estimation techniques
-- Implement sensor fusion using Extended Kalman Filter
-- Apply scan matching techniques (ICP) for pose estimation
-- Compare accuracy, drift, and robustness of each method
-- Generate 2D maps using SLAM
+1. [Setup](#1-setup)
+2. [What We Do](#2-what-we-do)
+   - [Differential Drive Model & Wheel Odometry](#21-differential-drive-model--wheel-odometry)
+   - [Extended Kalman Filter (EKF)](#22-extended-kalman-filter-ekf)
+   - [ICP Odometry Refinement](#23-icp-odometry-refinement)
+   - [SLAM with slam_toolbox](#24-slam-with-slam_toolbox)
+3. [Results](#3-results)
+   - [Configuration Definition](#31-configuration-definition)
+   - [Trajectory Plots](#32-trajectory-plots)
+   - [Generated Maps](#33-generated-maps)
+   - [Quantitative Metrics](#34-quantitative-metrics)
+   - [Discussion](#35-discussion)
 
 ---
 
-## System Requirements
+## 1. Setup
 
-### Hardware
-- Computer with Ubuntu 22.04
-- Recorded rosbag data (containing wheel encoder, IMU, and LiDAR data)
+### Prerequisites
 
-### Software
-- ROS 2 Humble
-- Python 3.10+
-- Required Python packages:
-  - numpy
-  - scipy
-  - pandas
-  - matplotlib
-- ROS 2 packages:
-  - slam_toolbox
-  - tf2_ros
+| Requirement | Version |
+|-------------|---------|
+| OS | Ubuntu 22.04 |
+| ROS 2 | Humble |
+| Python | 3.10+ |
+| Robot | TurtleBot3 Burger |
 
----
+### Step-by-Step Installation
 
-## Installation
-
-### Step 1: Clone the Repository
-
+**Step 1 – Clone the repository**
 ```bash
 cd ~/
-git clone <repository_url>
-cd mobile_lab1
+git clone <repository_url> Mobile_Robot
+cd Mobile_Robot
 ```
 
-### Step 2: Install Dependencies
-
+**Step 2 – Install ROS 2 dependencies**
 ```bash
-# Install ROS 2 packages
 sudo apt update
-sudo apt install ros-humble-slam-toolbox
+sudo apt install -y \
+    ros-humble-slam-toolbox \
+    ros-humble-nav2-map-server \
+    ros-humble-tf2-ros \
+    ros-humble-tf2-tools
+```
 
-# Install Python packages
+**Step 3 – Install Python dependencies**
+```bash
 pip3 install numpy scipy pandas matplotlib
 ```
 
-### Step 3: Build the Workspace
+**Step 4 – Place the dataset**
 
+Download the FRA532 Lab 1 dataset and place the sequence folders under:
+```
+src/FRA532_LAB1_DATASET/
+├── fibo_floor3_seq00/
+├── fibo_floor3_seq01/
+└── fibo_floor3_seq02/
+```
+
+**Step 5 – Build the workspace**
 ```bash
-cd ~/mobile_lab1
 colcon build
 source install/setup.bash
 ```
 
----
+> **Tip:** colcon installs Python scripts and config files as symlinks. You can edit source files directly without rebuilding.
 
-## Lab Structure
+### Running Each Part
 
-```
-mobile_lab1/
-├── src/
-│   ├── differential_drive_model/
-│   │   └── scripts/
-│   │       ├── read_data_node.py          # Rosbag data playback
-│   │       └── wheel_odometry_node.py     # Wheel encoder integration
-│   └── ekf_filter/
-│       └── scripts/
-│           ├── part1/
-│           │   ├── ekf_odometry_node.py   # EKF sensor fusion
-│           │   └── wheel_odometry_node.py # Part 1 wheel odometry
-│           ├── part2/
-│           │   └── icp_odometry_node.py   # ICP scan matching
-│           └── part3/
-│               └── scan_republisher_node.py # SLAM data preparation
-├── scripts/
-│   └── generate_deliverables.py           # Results generation script
-├── results/
-│   ├── wheel_odometry.csv                 # Raw data outputs
-│   ├── ekf_odometry.csv
-│   ├── icp_odometry.csv
-│   ├── slam_trajectory.csv
-│   ├── complete_comparison.png            # Generated plots
-│   ├── slam_map.pgm                       # Generated maps
-│   └── ANALYSIS_REPORT.md                 # Analysis document
-└── DELIVERABLES_README.md                 # This file
-```
-
----
-
-## Running the Experiments
-
-### Part 1: Wheel and EKF Odometry
-
-**Objective:** Compare wheel-only odometry with EKF sensor fusion (wheel + IMU)
-
-#### Step 1.1: Run Wheel Odometry
-
+**Part 1 – EKF Odometry Fusion**
 ```bash
-# Terminal 1: Launch wheel odometry node
-cd ~/mobile_lab1
-source install/setup.bash
-ros2 launch differential_drive_model part1_wheel_odometry.launch.py
-```
-
-Wait for the rosbag to finish playing, then stop with `Ctrl+C`.
-
-#### Step 1.2: Run EKF Odometry
-
-```bash
-# Terminal 1: Launch EKF odometry node
-cd ~/mobile_lab1
 source install/setup.bash
 ros2 launch ekf_filter part1_ekf_fusion.launch.py
 ```
+Outputs: `results/wheel_odometry.csv`, `results/ekf_odometry.csv`, `results/imu_data.csv`
 
-Wait for completion, then stop.
-
-#### Step 1.3: Verify Data Collection
-
+**Part 2 – ICP Odometry Refinement**
 ```bash
-ls -lh results/
-# Should see:
-#   - wheel_odometry.csv
-#   - ekf_odometry.csv
-#   - imu_data.csv
-```
-
----
-
-### Part 2: ICP Odometry
-
-**Objective:** Implement scan matching to improve odometry using laser scans
-
-#### Step 2.1: Run ICP Odometry Node
-
-```bash
-cd ~/mobile_lab1
 source install/setup.bash
 ros2 launch ekf_filter part2_icp_refinement.launch.py
 ```
+Outputs: `results/icp_odometry.csv`, `results/icp_map.pgm`, `results/icp_map.yaml`
 
-#### Step 2.2: Monitor ICP Performance
-
-In another terminal, watch the ICP debug output:
-
+**Part 3 – Full SLAM** (with optional RViz2)
 ```bash
-ros2 topic echo /icp/odometry
-```
-
-You should see ICP making corrections different from EKF estimates.
-
-#### Step 2.3: Verify Results
-
-```bash
-ls -lh results/icp_odometry.csv
-```
-
----
-
-### Part 3: SLAM
-
-**Objective:** Use SLAM with loop closure to build a map and correct drift
-
-#### Step 3.1: Run SLAM
-
-```bash
-cd ~/mobile_lab1
 source install/setup.bash
 ros2 launch ekf_filter part3_slam.launch.py
+# or with visualization:
+ros2 launch ekf_filter part3_slam_with_rviz.launch.py
 ```
+Outputs: `results/slam_trajectory.csv`, `results/slam_map.pgm`, `results/slam_map.yaml`
 
-#### Step 3.2: Visualize in RViz
-
-In another terminal:
-
+**Generate all comparison plots**
 ```bash
-rviz2 -d rviz_configs/slam_config.rviz
+python3 scripts/plot_all_results.py
 ```
 
-You should see:
-- The map being built in real-time
-- Robot trajectory
-- Laser scan data
+### Repository Structure
 
-#### Step 3.3: Save the Map
-
-After the rosbag finishes:
-
-```bash
-cd ~/mobile_lab1/results
-ros2 run nav2_map_server map_saver_cli -f slam_map
 ```
-
-This creates:
-- `slam_map.pgm` - The map image
-- `slam_map.yaml` - Map metadata
-
----
-
-## Generating Results
-
-### Step 1: Generate All Plots and Analysis
-
-```bash
-cd ~/mobile_lab1
-source install/setup.bash
-python3 scripts/generate_deliverables.py
-```
-
-This script will:
-1. Load all trajectory data
-2. Generate comparison plots
-3. Compute metrics (drift, distance, etc.)
-4. Create analysis report
-
-### Step 2: Generate Individual Plots (Optional)
-
-For more detailed analysis:
-
-```bash
-# Part 1 plots
-python3 src/ekf_filter/scripts/visualization/plot_trajectories.py --part1
-
-# Part 2 plots
-python3 src/ekf_filter/scripts/visualization/plot_trajectories.py --part2
-
-# Part 3 plots
-python3 src/ekf_filter/scripts/visualization/plot_trajectories.py --part3
-
-# All plots
-python3 src/ekf_filter/scripts/visualization/plot_trajectories.py
-```
-
-### Step 3: View Results
-
-```bash
-# View generated images
-eog results/complete_comparison.png
-
-# Read analysis report
-cat results/ANALYSIS_REPORT.md
+Mobile_Robot/
+├── src/
+│   ├── differential_drive_model/
+│   │   └── scripts/
+│   │       ├── read_data_node.py          # Rosbag replay with timestamp re-sync
+│   │       └── wheel_odometry_node.py     # Dead-reckoning from wheel encoders
+│   └── ekf_filter/
+│       ├── config/
+│       │   ├── mapper_params_online_async_B.yaml    # SLAM Config B (strict, active)
+│       │   └── mapper_params_online_async_saved_not_use.yaml  # SLAM Config A (relaxed)
+│       ├── launch/
+│       │   ├── part1_ekf_fusion.launch.py
+│       │   ├── part2_icp_refinement.launch.py
+│       │   ├── part3_slam.launch.py
+│       │   └── part3_slam_with_rviz.launch.py
+│       └── scripts/
+│           ├── part1/
+│           │   ├── ekf_odometry_node.py   # 5-state EKF (wheel + IMU fusion)
+│           │   └── wheel_odometry_node.py
+│           ├── part2/
+│           │   └── icp_odometry_node.py   # ICP scan matching with adaptive blending
+│           ├── part3/
+│           │   └── scan_republisher_node.py
+│           ├── auto_map_saver_node.py
+│           ├── icp_map_builder_node.py
+│           ├── path_publisher_node.py
+│           ├── read_data_node.py
+│           └── slam_trajectory_saver_node.py
+├── scripts/
+│   └── plot_all_results.py                # Generates all trajectory plots + metrics
+└── results/
+    ├── sequence_0/Config_A/ and Config_B/
+    ├── sequence_1/Config_A/ and Config_B/
+    └── sequence_2/Config_A/ and Config_B/
 ```
 
 ---
 
-## Results and Analysis
+## 2. What We Do
 
-### Trajectory Comparison
+This lab implements a 2D localization pipeline with four progressive methods, each adding more sensor information and algorithmic sophistication.
 
-![Complete Comparison](results/complete_comparison.png)
-
-*Figure 1: Comparison of all four odometry methods showing 2D trajectories and temporal evolution*
-
-### Quantitative Metrics
-
-| Method | Total Distance (m) | Loop Closure Error (m) | Drift Rate (%/m) |
-|--------|-------------------|------------------------|------------------|
-| Wheel Odometry | XX.XXX | X.XXX | X.XX |
-| EKF Odometry | XX.XXX | X.XXX | X.XX |
-| ICP Odometry | XX.XXX | X.XXX | X.XX |
-| SLAM | XX.XXX | X.XXX | X.XX |
-
-*Table 1: Quantitative performance metrics for each method*
-
-### Generated Maps
-
-#### ICP-based Map
-![ICP Map](results/icp_map.png)
-
-*Figure 2: Map built from ICP odometry trajectory*
-
-#### SLAM Map
-![SLAM Map](results/slam_map.png)
-
-*Figure 3: Map generated by SLAM with loop closure*
+| Part | Method | Sensors |
+|------|--------|---------|
+| 1 | Wheel Odometry (baseline) | `/joint_states` |
+| 1 | EKF Odometry Fusion | `/joint_states` + `/imu` |
+| 2 | ICP Odometry Refinement | `/scan` (EKF as initial guess) |
+| 3 | Full SLAM | `/scan` + EKF odometry |
 
 ---
 
-## Discussion
+### 2.1 Differential Drive Model & Wheel Odometry
 
-### 1. Accuracy Comparison
+The baseline method integrates wheel encoder ticks using the differential-drive kinematic model.
 
-**Wheel Odometry:**
-- Simple but accumulates significant drift
-- Errors compound over time without bounds
-- Drift rate: ~X.XX%
-- Loop closure error: ~X.XXX m
+**Robot geometry (TurtleBot3 Burger):**
 
-**EKF Odometry:**
-- Improved orientation estimate through IMU fusion
-- Reduces drift by ~XX% compared to wheel-only
-- Better performance in turns due to gyroscope
-- Still accumulates drift over long distances
+| Parameter | Value |
+|-----------|-------|
+| Wheel radius (`r`) | 0.033 m |
+| Wheel separation (`L`) | 0.160 m |
 
-**ICP Odometry:**
-- Best short-term accuracy when environment has features
-- Corrects for wheel slip by observing environment
-- Can fail in featureless areas (corridors, open spaces)
-- Computational cost: ~XX ms per iteration
+**Velocity computation from encoder ticks:**
+```
+v     = r/2 * (dφ_R + dφ_L) / dt
+omega = r/L * (dφ_R - dφ_L) / dt
+```
 
-**SLAM:**
-- Best long-term accuracy with loop closure
-- Reduces drift to near-zero when loops are detected
-- Most computationally expensive (~XX ms per update)
-- Requires structured environment for reliable operation
+**Dead-reckoning integration** (Euler, 20 Hz):
+```
+x_new = x + v·cos(θ)·dt
+y_new = y + v·sin(θ)·dt
+θ_new = θ + omega·dt
+```
 
-### 2. Drift Analysis
-
-**Observations:**
-1. Wheel odometry drift increases linearly with distance
-2. EKF reduces orientation drift but position drift remains
-3. ICP provides local corrections but still drifts globally
-4. SLAM achieves near-zero drift with successful loop closures
-
-**Drift Sources:**
-- **Systematic errors**: Wheel diameter mismatch, axle length error
-- **Random errors**: Wheel slip, encoder noise
-- **Sensor bias**: IMU gyroscope drift
-- **Environmental factors**: Floor irregularities, lighting (for SLAM)
-
-### 3. Robustness Comparison
-
-| Method | Computation | Robustness to Slip | Feature Dependency | Long-term Stability |
-|--------|-------------|-------------------|-------------------|---------------------|
-| Wheel | Very Fast | Poor | None | Poor |
-| EKF | Fast | Poor | None | Fair |
-| ICP | Medium | Good | High | Fair |
-| SLAM | Slow | Good | High | Excellent |
-
-*Table 2: Qualitative comparison of robustness factors*
-
-### 4. Key Findings
-
-1. **No single best method**: Each has trade-offs
-2. **Sensor fusion is essential**: EKF significantly improves wheel-only odometry
-3. **Environment matters**: ICP and SLAM depend on feature-rich environments
-4. **Loop closure is powerful**: SLAM's retrospective correction is invaluable
-5. **Computational cost scales with accuracy**: Better methods require more processing
-
-### 5. Practical Recommendations
-
-**For short missions (<10m, <2 minutes):**
-- Use EKF odometry
-- Benefits: Fast, no mapping overhead
-- Sufficient accuracy for short distances
-
-**For medium missions (10-50m, 2-10 minutes):**
-- Use ICP odometry with EKF initial guess
-- Benefits: Better accuracy than EKF, faster than SLAM
-- Requirement: Feature-rich environment
-
-**For long missions (>50m, >10 minutes) or closed loops:**
-- Use full SLAM
-- Benefits: Loop closure eliminates accumulated drift
-- Requirement: Computational resources, good loop detection
-
-**For unknown/dynamic environments:**
-- Use EKF + ICP fusion with outlier rejection
-- Benefits: Robust to both sensor failures and environment changes
-- Trade-off: No global consistency without loop closure
+This accumulates unbounded error over time, especially in heading, because wheel slip and small calibration errors in `r` and `L` are never corrected.
 
 ---
 
-## Source Code
+### 2.2 Extended Kalman Filter (EKF)
 
-### Key Algorithms Implemented
+The EKF fuses wheel encoder data with the IMU to reduce drift, particularly heading drift from the gyroscope.
 
-#### 1. Extended Kalman Filter (EKF)
+**State vector:** `[x, y, θ, v, ω]` — position, heading, linear velocity, angular velocity
 
-**File:** `src/ekf_filter/scripts/part1/ekf_odometry_node.py`
+#### Prediction Step (20 Hz, from `/joint_states`)
 
-**Algorithm:**
-```python
-# Prediction step (using wheel odometry)
-x_pred = x + v * cos(theta) * dt
-y_pred = y + v * sin(theta) * dt
-theta_pred = theta + omega * dt
-
-# Covariance prediction
-P_pred = F @ P @ F.T + Q
-
-# Update step (using IMU gyroscope)
-innovation = omega_imu - theta_pred
-K = P_pred @ H.T @ inv(H @ P_pred @ H.T + R)
-x_updated = x_pred + K @ innovation
-P_updated = (I - K @ H) @ P_pred
+For curved motion (`|ω| > 1×10⁻⁶ rad/s`):
+```
+x_new = x + (v/ω)(sin(θ + ω·dt) − sin(θ))
+y_new = y + (v/ω)(−cos(θ + ω·dt) + cos(θ))
+θ_new = θ + ω·dt
 ```
 
-**Key Parameters:**
-- Process noise (Q): Tuned based on wheel slip characteristics
-- Measurement noise (R): Based on IMU gyroscope noise density
-- Update rate: 50 Hz (wheel), 100 Hz (IMU)
-
-#### 2. Iterative Closest Point (ICP)
-
-**File:** `src/ekf_filter/scripts/part2/icp_odometry_node.py`
-
-**Algorithm:**
-```python
-# ICP main loop
-for iteration in range(max_iterations):
-    # 1. Find correspondences (nearest neighbors)
-    distances, indices = kdtree.query(source_points)
-
-    # 2. Filter by distance threshold
-    valid = distances < max_correspondence_distance
-
-    # 3. Compute transformation using SVD
-    H = source_centered.T @ target_centered
-    U, S, Vt = np.linalg.svd(H)
-    R = Vt.T @ U.T
-
-    # 4. Extract translation and rotation
-    t = target_centroid - R @ source_centroid
-    dtheta = atan2(R[1,0], R[0,0])
-
-    # 5. Check convergence
-    if abs(error_prev - error_current) < tolerance:
-        break
+For straight-line motion (`ω ≈ 0`):
+```
+x_new = x + v·cos(θ)·dt
+y_new = y + v·sin(θ)·dt
+θ_new = θ
 ```
 
-**Key Parameters:**
-- Max correspondence distance: 1.0 m
-- Max iterations: 200
-- Convergence tolerance: 1e-5
-- EKF trust weight: 25% (fusion parameter)
+Covariance prediction: `P_pred = F·P·Fᵀ + Q`
+where `F` is the analytically-derived Jacobian of the motion model.
 
-#### 3. Sensor Fusion Strategy
+#### Measurement Updates (20 Hz, from `/imu`)
 
-**EKF + ICP Fusion:**
-```python
-# Blend EKF initial guess with ICP correction
-if icp_quality_good:
-    alpha = 0.25  # Trust EKF 25%, ICP 75%
-else:
-    alpha = 0.65  # Trust EKF more if ICP is uncertain
+Three independent updates are applied per IMU callback:
 
-dx_final = alpha * dx_ekf + (1 - alpha) * dx_icp
-dy_final = alpha * dy_ekf + (1 - alpha) * dy_icp
-dtheta_final = alpha * dtheta_ekf + (1 - alpha) * dtheta_icp
-```
+1. **Gyroscope update** — directly measures `ω`
+   `H = [0, 0, 0, 0, 1]` → updates `state[4]`
+
+2. **Accelerometer update** — integrates `a_x` to refine `v`
+   Applied only when `|a_x| > 0.05 m/s²` (ignores noise when nearly still)
+   `H = [0, 0, 0, 1, 0]` → updates `state[3]`
+
+3. **Centripetal acceleration update** — uses `a_y ≈ v·ω` to refine `ω` during turns
+   Applied only when `|v| > 0.05 m/s` and `|a_y| > 0.02 m/s²`
+   `H = [0, 0, 0, 0, 1]` → updates `state[4]`
+
+**Wheel encoder update** (per `/joint_states` callback):
+Computes `[v_odom, ω_odom]` and updates `state[3:5]`.
+
+#### Outlier Rejection
+
+Mahalanobis distance gating applied to every update:
+`d² = (z − Hx)ᵀ (H·P·Hᵀ + R)⁻¹ (z − Hx)`
+Measurements with `d² > threshold` are silently rejected.
+
+#### IMU Bias Calibration
+
+The first 75 IMU samples (while the robot is stationary) are averaged to estimate and remove accelerometer bias (`bias_x`, `bias_y`).
+
+#### EKF Hyperparameters
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `Q` | diag([0.01]×5) | Process noise covariance |
+| `R_imu_gyro` | 0.0030 (rad/s)² | Gyroscope noise |
+| `R_imu_accel` | 0.1907 (m/s²)² | Accelerometer noise |
+| `R_odom` | diag([0.0005, 0.0031]) | Wheel odometry noise [v, ω] |
+| `R_centripetal` | 2.0 (rad/s)² | Centripetal ω estimate noise |
+| Bias calibration | 75 samples | Stationary IMU samples for bias estimation |
+| TF publish rate | 50 Hz | Prevents RViz transform extrapolation |
 
 ---
 
-## Hyperparameters Summary
+### 2.3 ICP Odometry Refinement
 
-### EKF Parameters
+ICP matches consecutive LiDAR scans to estimate the incremental transform and integrates it into a global pose. The EKF delta is used only as the **initial guess** for ICP (not directly in the output).
 
-```python
-# Process noise covariance (Q)
-Q = [
-    [0.01, 0,    0   ],  # x
-    [0,    0.01, 0   ],  # y
-    [0,    0,    0.001]  # theta
-]
+#### Algorithm (per scan, 5 Hz)
 
-# Measurement noise covariance (R)
-R_imu = 0.01  # IMU gyroscope variance (rad/s)^2
-```
+1. Convert `LaserScan` to 2D point cloud (range filter: `range_min < r < range_max`)
+2. Use EKF delta `[dx, dy, dθ]` as the initial transform
+3. **ICP loop** (max 200 iterations, tolerance 1×10⁻⁵):
+   - Build KD-tree on target scan
+   - Find nearest-neighbor correspondences (distance < 1.2 m)
+   - Reject outlier pairs
+   - Compute optimal rotation `R` via SVD on cross-covariance: `H = src_c.T · tgt_c`
+   - Extract translation: `t = tgt_mean − R·src_mean`
+   - Update accumulated transform; check convergence
+4. **Adaptive blending** of ICP result with EKF initial guess:
+   - Quality score = `n_correspondences / max_correspondences × (1 − normalized_error)`
+   - High quality → low EKF trust (min 5%)
+   - Low quality → high EKF trust (max 35%)
+   - Rotation gets extra +10% EKF trust (IMU gyro is more reliable than scan matching for heading)
+   - If ICP diverges or has < 20 correspondences → use EKF 100%
+5. Integrate final `[dx, dy, dθ]` into global pose
 
-### ICP Parameters
+#### ICP Hyperparameters
 
-```python
-max_iterations = 200              # Maximum ICP iterations
-tolerance = 1e-5                  # Convergence threshold
-max_correspondence_dist = 1.0     # Max point matching distance (m)
-ekf_trust_weight = 0.25          # Fusion weight (25% EKF, 75% ICP)
-max_icp_correction_trans = 0.15  # Max translation correction (m)
-max_icp_correction_rot = 0.3     # Max rotation correction (rad)
-```
-
-### SLAM Parameters
-
-```python
-# slam_toolbox configuration
-map_resolution: 0.05              # 5cm per pixel
-minimum_travel_distance: 0.5      # Minimum distance for new scan
-minimum_travel_heading: 0.5       # Minimum rotation for new scan (rad)
-loop_search_maximum_distance: 3.0 # Loop closure search radius (m)
-do_loop_closing: true             # Enable loop closure
-```
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `max_iterations` | 200 | Maximum ICP iterations per scan |
+| `tolerance` | 1×10⁻⁵ | Convergence threshold (mean error change) |
+| `max_correspondence_dist` | 1.2 m | Maximum point-pair distance for matching |
+| `min_ekf_trust` | 5% | EKF weight at highest ICP quality |
+| `max_ekf_trust` | 35% | EKF weight at lowest ICP quality |
+| `rotation_ekf_bonus` | +10% | Extra EKF trust for heading (gyro is accurate) |
+| `min_correspondences` | 20 | Minimum matches; below this use EKF 100% |
 
 ---
 
-## Troubleshooting
+### 2.4 SLAM with slam_toolbox
 
-### Issue 1: ICP produces same results as EKF
+Full SLAM uses `async_slam_toolbox_node` with EKF odometry as the odometry input and `/scan` as the laser source.
 
-**Symptoms:** ICP trajectory identical to EKF
+**Key features:**
+- Scan-to-map matching at every pose (`use_scan_matching: true`)
+- Pose graph optimization with loop closure (`do_loop_closing: true`)
+- Ceres non-linear solver: `SPARSE_NORMAL_CHOLESKY` + `SCHUR_JACOBI` + `LEVENBERG_MARQUARDT`
+- EKF odometry as the odometry source (high quality input)
 
-**Causes:**
-- `max_correspondence_dist` too small
-- Not enough laser scan points
-- Environment lacks features
+#### SLAM Configurations
 
-**Solutions:**
-```bash
-# Increase correspondence distance in icp_odometry_node.py
-self.max_correspondence_dist = 1.0  # Instead of 0.3
+Two configurations were tested to study the effect of scan-matching search constraints:
 
-# Check scan quality
-ros2 topic echo /read_data/scan
-```
+| Parameter | Config A (Relaxed) | Config B (Strict) |
+|-----------|-------------------|-------------------|
+| `correlation_search_space_dimension` | 0.3 m (±15 cm) | 0.03 m (±1.5 cm) |
+| `distance_variance_penalty` | 2.5 | **20.0** |
+| `angle_variance_penalty` | 2.5 | **40.0** |
+| `loop_match_minimum_response_fine` | 0.5 | 0.5 |
+| `link_match_minimum_response_fine` | 0.3 | 0.3 |
+| `resolution` | 0.05 m/px | 0.05 m/px |
+| `max_laser_range` | 3.5 m | 3.5 m |
+| `minimum_travel_distance` | 0.2 m | 0.2 m |
 
-### Issue 2: SLAM not closing loops
+**Config A (Relaxed):** Allows the scan matcher to search a wide area (±15 cm). This can find better scan matches in open environments but is prone to false correspondences in symmetric corridor geometry (both walls look identical).
 
-**Symptoms:** Map shows drift, no loop closures detected
+**Config B (Strict):** Constrains the search space to ±1.5 cm and applies strong variance penalties to force SLAM to closely follow EKF odometry. The high `distance_variance_penalty=20` and `angle_variance_penalty=40` prevent the pose graph from diverging from the EKF estimate, making SLAM more robust to corridor ambiguity.
 
-**Causes:**
-- Robot didn't actually return to start
-- Loop closure search distance too small
-- Map quality insufficient
-
-**Solutions:**
-```bash
-# Increase loop search distance in mapper_params_online_async.yaml
-loop_search_maximum_distance: 5.0  # Instead of 3.0
-
-# Verify robot path
-python3 scripts/view_slam_map.py
-```
-
-### Issue 3: No CSV files generated
-
-**Symptoms:** `results/` directory empty
-
-**Causes:**
-- Launch file crashed before data saved
-- Insufficient disk space
-- Directory permission issues
-
-**Solutions:**
-```bash
-# Check disk space
-df -h
-
-# Create results directory with correct permissions
-mkdir -p ~/mobile_lab1/results
-chmod 755 ~/mobile_lab1/results
-
-# Check node logs
-ros2 run ekf_filter ekf_odometry_node.py
-```
+> **Active configuration:** `Part 3` launch files use **Config B** (`mapper_params_online_async_B.yaml`).
 
 ---
 
-## References
+## 3. Results
 
-### Papers and Algorithms
+### 3.1 Configuration Definition
 
-1. **Kalman Filter:**
-   - Welch, G., & Bishop, G. (2006). *An Introduction to the Kalman Filter*. UNC Chapel Hill.
+The table below defines exactly which SLAM configuration was used for each sequence and method.
 
-2. **ICP Algorithm:**
-   - Besl, P. J., & McKay, N. D. (1992). *A method for registration of 3-D shapes*. IEEE TPAMI, 14(2), 239-256.
+| Sequence | Wheel Odometry | EKF Odometry | ICP Odometry | SLAM |
+|----------|---------------|--------------|--------------|------|
+| Sequence 0 | Config A | Config A | Config A | **Both A and B** |
+| Sequence 1 | Config B | Config B | Config B | **Both A and B** |
+| Sequence 2 | Config A | Config A | Config A | **Both A and B** |
 
-3. **SLAM:**
-   - Grisetti, G., Stachniss, C., & Burgard, W. (2007). *Improved Techniques for Grid Mapping with Rao-Blackwellized Particle Filters*. IEEE TRO.
+> **Note:** Wheel, EKF, and ICP methods are pure odometry — they do not depend on SLAM config. The "Config A/B" column for these methods indicates which run the data was collected from. SLAM was run separately with both configurations on all three sequences.
 
-### Tools and Libraries
+**Datasets used:**
 
-- **ROS 2:** https://docs.ros.org/en/humble/
-- **slam_toolbox:** https://github.com/SteveMacenski/slam_toolbox
-- **NumPy/SciPy:** https://numpy.org/, https://scipy.org/
-
-### Course Materials
-
-- Mobile Robotics Lecture Slides (FRA502)
-- Lab Manual: Odometry and Localization
+| Sequence | Rosbag file | Description |
+|----------|------------|-------------|
+| Sequence 0 | `fibo_floor3_seq00_0.db3` | Empty hallway, straight corridor |
+| Sequence 1 | `fibo_floor3_seq01_0.db3` | Sharp turns, obstacles |
+| Sequence 2 | `fibo_floor3_seq02_0.db3` | Smooth non-aggressive motion |
 
 ---
 
-## Appendix
+### 3.2 Trajectory Plots
 
-### A. Launch File Configuration
+#### All 4 Methods per Sequence
 
-All launch files are located in `src/ekf_filter/launch/` and `src/differential_drive_model/launch/`
+**Sequence 0 – Empty hallway**
 
-Key launch files:
-- `part1_ekf_fusion.launch.py` - EKF sensor fusion
-- `part2_icp_refinement.launch.py` - ICP odometry
-- `part3_slam.launch.py` - SLAM mapping
+![Sequence 0 – 4 Methods](results/sequence_0_4methods.png)
 
-### B. Data Format
+**Sequence 1 – Sharp turns**
 
-All CSV files use the following format:
+![Sequence 1 – 4 Methods](results/sequence_1_4methods.png)
 
-```csv
-timestamp,x,y,theta,v,omega
-1234567890000,0.000,0.000,0.000,0.000,0.000
-...
-```
+**Sequence 2 – Smooth motion**
 
-Where:
-- `timestamp`: Nanoseconds since epoch
-- `x, y`: Position in meters
-- `theta`: Orientation in radians
-- `v`: Linear velocity (m/s)
-- `omega`: Angular velocity (rad/s)
+![Sequence 2 – 4 Methods](results/sequence_2_4methods.png)
 
-### C. Visualization Scripts
+#### SLAM Config A vs Config B Comparison
 
-Additional visualization tools:
+**Per-sequence SLAM config comparison:**
 
-```bash
-# Plot individual trajectories
-python3 src/ekf_filter/scripts/visualization/plot_trajectories.py --part1
+![Sequence 0 – Config A vs B](results/sequence_0_both_configs.png)
+![Sequence 1 – Config A vs B](results/sequence_1_both_configs.png)
+![Sequence 2 – Config A vs B](results/sequence_2_both_configs.png)
 
-# View SLAM map
-python3 scripts/view_slam_map.py
+**All sequences overview:**
 
-# Build map from odometry
-python3 src/ekf_filter/scripts/build_map_from_csv.py results/icp_odometry.csv
-```
+![All Sequences Grid](results/all_sequences_grid.png)
+
+**SLAM Config A vs Config B – side-by-side:**
+
+![SLAM Config Comparison](results/slam_config_comparison.png)
 
 ---
 
-**Last Updated:** February 2026
-**Lab Completion Date:** [Your Date]
+### 3.3 Generated Maps
+
+#### ICP Occupancy Maps
+
+ICP builds a 2D occupancy grid by projecting LiDAR scans from the ICP-estimated pose at each timestep.
+
+| Sequence | ICP Map |
+|----------|---------|
+| Sequence 0 | `results/sequence_0/Config_A/icp_map.pgm` |
+| Sequence 1 | `results/sequence_1/Config_B/icp_map.pgm` |
+| Sequence 2 | `results/sequence_2/Config_A/icp_map.pgm` |
+
+#### SLAM Occupancy Maps
+
+SLAM (slam_toolbox) generates a globally consistent occupancy grid via pose graph optimization and loop closure.
+
+| Sequence | Config A Map | Config B Map |
+|----------|-------------|-------------|
+| Sequence 0 | `results/sequence_0/Config_A/slam_map.pgm` | `results/sequence_0/Config_B/slam_map.pgm` |
+| Sequence 1 | `results/sequence_1/Config_A/slam_map.pgm` | `results/sequence_1/Config_B/slam_map.pgm` |
+| Sequence 2 | `results/sequence_2/Config_A/slam_map.pgm` | `results/sequence_2/Config_B/slam_map.pgm` |
 
 ---
 
-## Contact
+### 3.4 Quantitative Metrics
 
-For questions or issues:
-- **Email:** [Your Email]
-- **GitHub Issues:** [Repository URL]/issues
+**Metric definitions:**
+- **LCE (Loop Closure Error):** Euclidean distance between the start and end pose. Measures long-term positional accuracy.
+- **Total Distance:** Integrated path length.
+- **Drift Rate:** `LCE / Total Distance × 100%`. Lower is better.
+
+#### Full Results Table
+
+| Method | Config | Seq | Total Dist (m) | LCE (m) | Drift Rate (%) |
+|--------|--------|-----|---------------|---------|---------------|
+| Wheel  | A | 0 | 61.82 | 8.877 | 14.36 |
+| EKF    | A | 0 | 55.43 | 4.033 |  7.28 |
+| ICP    | A | 0 | 66.11 | 4.025 |  6.09 |
+| SLAM   | A | 0 | 62.05 | 4.567 |  7.36 |
+| SLAM   | **B** | 0 | 55.74 | **1.216** | **2.18** |
+| Wheel  | B | 1 | 62.69 | 2.882 |  4.60 |
+| EKF    | B | 1 | 56.39 | 1.711 |  3.03 |
+| ICP    | B | 1 | 64.00 | 1.709 |  2.67 |
+| SLAM   | A | 1 | 68.56 | 17.766 | 25.91 |
+| SLAM   | **B** | 1 | 56.41 | **0.643** | **1.14** |
+| Wheel  | A | 2 | 68.59 | 8.761 | 12.77 |
+| EKF    | A | 2 | 59.70 | 2.562 |  4.29 |
+| ICP    | A | 2 | 62.46 | 2.567 |  4.11 |
+| SLAM   | A | 2 | 69.62 | 5.883 |  8.45 |
+| SLAM   | **B** | 2 | 62.11 | **4.033** | **6.49** |
+
+#### Average Drift Rate by Method
+
+| Method | Avg Drift Rate | vs Wheel |
+|--------|---------------|---------|
+| Wheel Odometry | 10.58% | baseline |
+| EKF Odometry | 4.87% | −54% |
+| ICP Odometry | 4.29% | −59% |
+| SLAM Config A | 13.91% | worse in Seq 1 |
+| SLAM Config B | **3.27%** | **−69%** |
 
 ---
 
-**Happy Mapping! 🤖🗺️**
+### 3.5 Discussion
+
+#### Accuracy (Loop Closure Error)
+
+**Ranking: SLAM (Config B) > ICP ≈ EKF > Wheel > SLAM (Config A in Seq 1)**
+
+**Wheel Odometry** accumulates the most error — averaging 10.58% drift rate. With no external reference, every integration step compounds encoder noise and wheel slip. Seq 0 and Seq 2 (longer traversals) reach 8.8 m LCE.
+
+**EKF Odometry** cuts average drift to 4.87% (−54% vs Wheel). The gyroscope update directly corrects angular velocity, which is the primary source of heading drift. The three-stage IMU update pipeline (gyro, accelerometer, centripetal) provides redundant heading corrections during turns.
+
+**ICP Odometry** achieves 4.29% average drift (−10.8% vs EKF). Scan matching at 5 Hz provides environment-relative corrections that catch positional errors from wheel slip. The adaptive blending (5–35% EKF trust) prevents ICP from diverging in featureless straight corridors by falling back to EKF when scan quality is low.
+
+**SLAM Config B** achieves the best accuracy with 3.27% average drift rate. The strict search space (±1.5 cm) and high variance penalties (20/40) force the pose graph to stay close to EKF, preventing false scan correspondences in symmetric corridor geometry. Loop closure further eliminates accumulated drift when the robot revisits mapped areas.
+
+#### Config A vs Config B SLAM
+
+The most critical comparison is Sequence 1 (sharp turns + obstacles):
+
+| Config | Seq 1 LCE | Seq 1 Drift |
+|--------|----------|------------|
+| Config A (Relaxed ±15 cm) | 17.77 m | **25.91%** |
+| Config B (Strict ±1.5 cm) | 0.64 m | **1.14%** |
+
+Config A catastrophically fails on Seq 1. The wide scan-matching search space (±15 cm) allows the solver to find spurious scan correspondences in the symmetrical left/right corridor walls, causing the pose graph to drift far from the true trajectory. Config B prevents this by tightly constraining the search around the EKF estimate.
+
+#### Robustness
+
+| Method | Computation | Slip Robustness | Feature Dependency | Long-term Stability |
+|--------|-------------|-----------------|-------------------|---------------------|
+| Wheel  | Very Fast | Poor | None | Poor |
+| EKF    | Fast | Moderate | None | Fair |
+| ICP    | Medium | Good | High | Fair |
+| SLAM Config A | Slow | Good | High | Variable |
+| SLAM Config B | Slow | Good | High | **Excellent** |
+
+**Key findings:**
+
+1. **Sensor fusion (EKF) reduces drift by ~54% vs wheel-only** — the gyroscope is the most impactful single correction.
+2. **ICP scan matching matches or slightly beats EKF** — adaptive blending prevents degradation in featureless corridors.
+3. **SLAM Config B is consistently the best overall** — strict penalties prevent corridor ambiguity failures and loop closure provides global consistency.
+4. **Config A SLAM is unreliable** — fails badly on Seq 1 (25.91% drift) due to symmetric corridor geometry causing false scan matches.
+5. **SLAM uniquely provides a 2D occupancy map** — enabling autonomous navigation beyond just localization.
+
+---
+
+*Last updated: February 2026*

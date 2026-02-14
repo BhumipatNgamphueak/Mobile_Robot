@@ -1,0 +1,10 @@
+free_thresh: 0.25
+image: slam_map.pgm
+mode: trinary
+negate: 0
+occupied_thresh: 0.65
+origin:
+- -3.307410943302947
+- -16.029799818413185
+- 0.0
+resolution: 0.05000000074505806

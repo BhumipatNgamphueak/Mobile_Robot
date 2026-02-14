@@ -99,7 +99,7 @@ class EKFOdometryNode(Node):
         self.prev_time = None
 
         # Data logging
-        self.trajectory_file = '/home/prime/mobile_lab1/results/ekf_odometry.csv'
+        self.trajectory_file = '/home/prime/Mobile_Robot/results/ekf_odometry.csv'
         self.init_csv_file()
 
         # Timer to publish TF at high frequency (fixes RViz extrapolation errors)

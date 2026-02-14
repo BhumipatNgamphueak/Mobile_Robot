@@ -14,7 +14,7 @@ class Read_data_Node(Node):
         super().__init__('read_data_node')
 
         # Path to the bag file
-        self.bag_path = '/home/prime/mobile_lab1/src/FRA532_LAB1_DATASET/fibo_floor3_seq00/fibo_floor3_seq02_0.db3'
+        self.bag_path = '/home/prime/Mobile_Robot/src/FRA532_LAB1_DATASET/fibo_floor3_seq02/fibo_floor3_seq02_0.db3'
 
         # Data storage
         self.scan_data = []

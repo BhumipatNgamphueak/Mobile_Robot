@@ -27,12 +27,14 @@ ament_python_install_package(${PROJECT_NAME})
 
 # Install Python executables
 install(PROGRAMS
-  scripts/dummy_script.py
   scripts/ekf_node.py
   scripts/part1/ekf_odometry_node.py
   scripts/part2/icp_odometry_node.py
+  scripts/icp_map_builder_node.py
   scripts/path_publisher_node.py
-  scripts/monitor_slam_data.py
+  scripts/part3/scan_republisher_node.py
+  scripts/auto_map_saver_node.py
+  scripts/slam_trajectory_saver_node.py
   scripts/visualization/plot_trajectories.py
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -56,6 +58,7 @@ install(DIRECTORY
   # add directories here
   launch
   config
+  rviz
   DESTINATION share/${PROJECT_NAME})
 
 ament_package()

@@ -14,7 +14,7 @@ import numpy as np
 import os
 import sys
 
-RESULTS_DIR = '/home/prime/mobile_lab1/results'
+RESULTS_DIR = '/home/prime/Mobile_Robot/results'
 
 
 def load_trajectory(filename):
@@ -115,7 +115,7 @@ def plot_complete_comparison():
         time_icp = (icp_odom['timestamp'].values - icp_odom['timestamp'].iloc[0]) / 1e9
         ax2.plot(time_icp, icp_odom['x'].values, 'g-', label='ICP', linewidth=2, alpha=0.7)
 
-    if slam_odom is not None and 'timestamp' in slam_odom.columns:
+    if slam_odom is not None and 'timestamp' in slam_odom.columns and len(slam_odom) > 0:
         time_slam = (slam_odom['timestamp'].values - slam_odom['timestamp'].iloc[0]) / 1e9
         ax2.plot(time_slam, slam_odom['x'].values, 'm-', label='SLAM', linewidth=2, alpha=0.7)
 
@@ -139,7 +139,7 @@ def plot_complete_comparison():
     if icp_odom is not None:
         ax3.plot(time_icp, icp_odom['y'].values, 'g-', label='ICP', linewidth=2, alpha=0.7)
 
-    if slam_odom is not None and 'timestamp' in slam_odom.columns:
+    if slam_odom is not None and 'timestamp' in slam_odom.columns and len(slam_odom) > 0:
         ax3.plot(time_slam, slam_odom['y'].values, 'm-', label='SLAM', linewidth=2, alpha=0.7)
 
     ax3.set_xlabel('Time (seconds)', fontsize=11, fontweight='bold')

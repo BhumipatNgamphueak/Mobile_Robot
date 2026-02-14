@@ -17,7 +17,7 @@ import os
 import sys
 
 
-RESULTS_DIR = '/home/prime/mobile_lab1/results'
+RESULTS_DIR = '/home/prime/Mobile_Robot/results'
 
 
 def load_trajectory(filename):

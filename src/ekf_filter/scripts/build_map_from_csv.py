@@ -48,7 +48,7 @@ def plot_trajectory_with_scans(odom_file, title="Map"):
     ax2.axis('equal')
 
     plt.tight_layout()
-    plt.savefig(f'/home/prime/mobile_lab1/results/{title.lower().replace(" ", "_")}_map.png', dpi=150)
+    plt.savefig(f'/home/prime/Mobile_Robot/results/{title.lower().replace(" ", "_")}_map.png', dpi=150)
     plt.show()
 
     print(f"Map saved to results/{title.lower().replace(' ', '_')}_map.png")
@@ -62,9 +62,9 @@ def compare_trajectories():
 
     # Load all trajectories
     files = {
-        'Wheel': '/home/prime/mobile_lab1/results/wheel_odometry.csv',
-        'EKF': '/home/prime/mobile_lab1/results/ekf_odometry.csv',
-        'ICP': '/home/prime/mobile_lab1/results/icp_odometry.csv'
+        'Wheel': '/home/prime/Mobile_Robot/results/wheel_odometry.csv',
+        'EKF': '/home/prime/Mobile_Robot/results/ekf_odometry.csv',
+        'ICP': '/home/prime/Mobile_Robot/results/icp_odometry.csv'
     }
 
     colors = {'Wheel': 'green', 'EKF': 'blue', 'ICP': 'red'}
@@ -91,7 +91,7 @@ def compare_trajectories():
     ax.axis('equal')
 
     plt.tight_layout()
-    plt.savefig('/home/prime/mobile_lab1/results/trajectory_comparison.png', dpi=150)
+    plt.savefig('/home/prime/Mobile_Robot/results/trajectory_comparison.png', dpi=150)
     plt.show()
 
     print("\nComparison saved to results/trajectory_comparison.png")
@@ -109,9 +109,9 @@ if __name__ == '__main__':
 
     # Individual maps
     print("\nGenerating ICP map...")
-    plot_trajectory_with_scans('/home/prime/mobile_lab1/results/icp_odometry.csv', 'ICP Odometry')
+    plot_trajectory_with_scans('/home/prime/Mobile_Robot/results/icp_odometry.csv', 'ICP Odometry')
 
     print("\nGenerating EKF map...")
-    plot_trajectory_with_scans('/home/prime/mobile_lab1/results/ekf_odometry.csv', 'EKF Odometry')
+    plot_trajectory_with_scans('/home/prime/Mobile_Robot/results/ekf_odometry.csv', 'EKF Odometry')
 
     print("\nDone! Check results/ folder for images.")

@@ -27,12 +27,8 @@ ament_python_install_package(${PROJECT_NAME})
 
 # Install Python executables
 install(PROGRAMS
-  scripts/dummy_script.py
   scripts/read_data_node.py
   scripts/wheel_odometry_node.py
-  scripts/scan_republisher_node.py
-  scripts/odom_republisher_node.py
-  scripts/synchronized_republisher_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
