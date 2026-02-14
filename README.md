@@ -53,18 +53,20 @@ rosdep install --from-paths src --ignore-src -r -y
 pip3 install numpy scipy pandas matplotlib pillow pyyaml
 ```
 
-**4. Place the Dataset**
+**4. Verify the Dataset**
 
-Download the FRA532 Lab 1 dataset and place it under `src/FRA532_LAB1_DATASET/`:
+The rosbag files are included in the repository under `src/FRA532_LAB1_DATASET/`:
 ```
 src/FRA532_LAB1_DATASET/
 ├── fibo_floor3_seq00/
-│   └── fibo_floor3_seq00_0.db3
+│   └── fibo_floor3_seq00_0.db3   (16 MB)
 ├── fibo_floor3_seq01/
-│   └── fibo_floor3_seq01_0.db3
+│   └── fibo_floor3_seq01_0.db3   (12 MB)
 └── fibo_floor3_seq02/
-    └── fibo_floor3_seq02_0.db3
+    └── fibo_floor3_seq02_0.db3   (19 MB)
 ```
+
+> The default bag used when no `bag_path` argument is given is `fibo_floor3_seq02_0.db3`.
 
 **5. Build the Workspace**
 ```bash
@@ -77,11 +79,24 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-**7. (Optional) Add to `.bashrc`**
+**7. (Optional) Auto-source on every new terminal**
+
+Open `~/.bashrc` in any text editor and add this line at the bottom:
 ```bash
-echo "source ~/Mobile_Robot/install/setup.bash" >> ~/.bashrc
+source /home/YOUR_USERNAME/Mobile_Robot/install/setup.bash
+```
+
+Replace `YOUR_USERNAME` with your actual username (e.g. `prime`):
+```bash
+source /home/prime/Mobile_Robot/install/setup.bash
+```
+
+Then reload the current terminal:
+```bash
 source ~/.bashrc
 ```
+
+> **Skip this step** if you prefer to run `source install/setup.bash` manually each time you open a new terminal. This is safer if you work with multiple ROS workspaces.
 
 ### Running the Experiments
 
