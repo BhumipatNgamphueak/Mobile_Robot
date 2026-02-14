@@ -14,6 +14,13 @@ import numpy as np
 import yaml
 import os
 from PIL import Image
+from ament_index_python.packages import get_package_share_directory
+
+
+def _ws_results():
+    share = get_package_share_directory('ekf_filter')
+    ws = os.path.normpath(os.path.join(share, '..', '..', '..', '..'))
+    return os.path.join(ws, 'results')
 
 
 class ICPMapBuilderNode(Node):
@@ -21,7 +28,7 @@ class ICPMapBuilderNode(Node):
         super().__init__('icp_map_builder_node')
 
         # Parameters
-        self.declare_parameter('output_dir', '/home/prime/Mobile_Robot/results')
+        self.declare_parameter('output_dir', _ws_results())
         self.declare_parameter('map_name', 'icp_map')
         self.declare_parameter('resolution', 0.05)  # 5cm per pixel (same as SLAM)
         self.declare_parameter('map_size_x', 50.0)  # meters

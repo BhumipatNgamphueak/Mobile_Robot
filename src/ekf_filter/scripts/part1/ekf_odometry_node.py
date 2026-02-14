@@ -21,6 +21,13 @@ import numpy as np
 import math
 import csv
 import os
+from ament_index_python.packages import get_package_share_directory
+
+
+def _ws_results():
+    share = get_package_share_directory('ekf_filter')
+    ws = os.path.normpath(os.path.join(share, '..', '..', '..', '..'))
+    return os.path.join(ws, 'results')
 
 
 class EKFOdometryNode(Node):
@@ -99,7 +106,7 @@ class EKFOdometryNode(Node):
         self.prev_time = None
 
         # Data logging
-        self.trajectory_file = '/home/prime/Mobile_Robot/results/ekf_odometry.csv'
+        self.trajectory_file = os.path.join(_ws_results(), 'ekf_odometry.csv')
         self.init_csv_file()
 
         # Timer to publish TF at high frequency (fixes RViz extrapolation errors)

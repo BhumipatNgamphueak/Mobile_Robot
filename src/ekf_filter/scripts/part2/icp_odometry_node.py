@@ -15,6 +15,13 @@ import math
 import csv
 import os
 from scipy.spatial import KDTree
+from ament_index_python.packages import get_package_share_directory
+
+
+def _ws_results():
+    share = get_package_share_directory('ekf_filter')
+    ws = os.path.normpath(os.path.join(share, '..', '..', '..', '..'))
+    return os.path.join(ws, 'results')
 
 
 class ICPOdometryNode(Node):
@@ -57,7 +64,7 @@ class ICPOdometryNode(Node):
         self.rotation_ekf_bonus = 0.1  # Slight extra trust for rotation
 
         # Data logging
-        self.trajectory_file = '/home/prime/Mobile_Robot/results/icp_odometry.csv'
+        self.trajectory_file = os.path.join(_ws_results(), 'icp_odometry.csv')
         self.init_csv_file()
 
         self.scan_count = 0

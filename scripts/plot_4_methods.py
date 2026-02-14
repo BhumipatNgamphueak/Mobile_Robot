@@ -5,6 +5,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
+
+_RESULTS = Path(__file__).resolve().parent.parent / 'results'
 
 def read_csv(path, x_col='x', y_col='y'):
     x, y = [], []
@@ -16,10 +19,10 @@ def read_csv(path, x_col='x', y_col='y'):
     return np.array(x), np.array(y)
 
 # Read data
-wheel_x, wheel_y = read_csv('/home/prime/mobile_lab1/results/wheel_odometry.csv')
-ekf_x, ekf_y = read_csv('/home/prime/mobile_lab1/results/ekf_odometry.csv')
-icp_x, icp_y = read_csv('/home/prime/mobile_lab1/results/icp_odometry.csv')
-slam_x, slam_y = read_csv('/home/prime/Mobile_Robot/results/slam_trajectory.csv')
+wheel_x, wheel_y = read_csv(_RESULTS / 'wheel_odometry.csv')
+ekf_x, ekf_y = read_csv(_RESULTS / 'ekf_odometry.csv')
+icp_x, icp_y = read_csv(_RESULTS / 'icp_odometry.csv')
+slam_x, slam_y = read_csv(_RESULTS / 'slam_trajectory.csv')
 
 # --- Individual plots ---
 fig, axes = plt.subplots(2, 2, figsize=(14, 12))
@@ -44,7 +47,7 @@ for ax, x, y, title, color, n in methods:
     ax.legend(fontsize=9)
 
 plt.tight_layout()
-plt.savefig('/home/prime/Mobile_Robot/results/four_methods_separate.png', dpi=150, bbox_inches='tight')
+plt.savefig(_RESULTS / 'four_methods_separate.png', dpi=150, bbox_inches='tight')
 print('Saved: four_methods_separate.png')
 
 # --- Overlay plot ---
@@ -62,5 +65,5 @@ ax2.grid(True, alpha=0.3)
 ax2.legend(fontsize=11)
 
 plt.tight_layout()
-plt.savefig('/home/prime/Mobile_Robot/results/four_methods_overlay.png', dpi=150, bbox_inches='tight')
+plt.savefig(_RESULTS / 'four_methods_overlay.png', dpi=150, bbox_inches='tight')
 print('Saved: four_methods_overlay.png')

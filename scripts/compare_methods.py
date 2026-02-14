@@ -13,7 +13,9 @@ from pathlib import Path
 import json
 
 class OdometryComparison:
-    def __init__(self, results_dir='/home/prime/Mobile_Robot/results'):
+    def __init__(self, results_dir=None):
+        if results_dir is None:
+            results_dir = Path(__file__).resolve().parent.parent / 'results'
         self.results_dir = Path(results_dir)
         self.methods = {
             'Wheel': 'wheel_odometry.csv',

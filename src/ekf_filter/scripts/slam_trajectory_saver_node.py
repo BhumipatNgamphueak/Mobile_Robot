@@ -10,6 +10,13 @@ from tf2_ros import TransformListener, Buffer
 import csv
 import os
 import math
+from ament_index_python.packages import get_package_share_directory
+
+
+def _ws_results():
+    share = get_package_share_directory('ekf_filter')
+    ws = os.path.normpath(os.path.join(share, '..', '..', '..', '..'))
+    return os.path.join(ws, 'results')
 
 
 class SLAMTrajectorySaverNode(Node):
@@ -17,7 +24,7 @@ class SLAMTrajectorySaverNode(Node):
         super().__init__('slam_trajectory_saver_node')
 
         # Parameters
-        self.declare_parameter('output_dir', '/home/prime/Mobile_Robot/results')
+        self.declare_parameter('output_dir', _ws_results())
         self.declare_parameter('output_file', 'slam_trajectory.csv')
 
         output_dir = self.get_parameter('output_dir').value

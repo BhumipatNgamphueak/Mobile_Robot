@@ -28,93 +28,117 @@
 
 ### Prerequisites
 
-| Requirement | Version |
-|-------------|---------|
-| OS | Ubuntu 22.04 |
-| ROS 2 | Humble |
-| Python | 3.10+ |
-| Robot | TurtleBot3 Burger |
+- Ubuntu 22.04
+- ROS 2 Humble ([official install guide](https://docs.ros.org/en/humble/Installation.html))
+- Python 3.10+
+- TurtleBot3 Burger
 
-### Step-by-Step Installation
+### Installation
 
-**Step 1 – Clone the repository**
+**1. Clone the Repository**
 ```bash
-cd ~/
-git clone <repository_url> Mobile_Robot
-cd Mobile_Robot
+git clone https://github.com/BhumipatNgamphueak/FRA532_Mobile_Lab1.git ~/Mobile_Robot
+cd ~/Mobile_Robot
 ```
 
-**Step 2 – Install ROS 2 dependencies**
+**2. Install ROS 2 Dependencies**
 ```bash
 sudo apt update
-sudo apt install -y \
-    ros-humble-slam-toolbox \
-    ros-humble-nav2-map-server \
-    ros-humble-tf2-ros \
-    ros-humble-tf2-tools
+sudo apt install -y ros-humble-slam-toolbox ros-humble-nav2-map-server
+rosdep install --from-paths src --ignore-src -r -y
 ```
 
-**Step 3 – Install Python dependencies**
+**3. Install Python Dependencies**
 ```bash
-pip3 install numpy scipy pandas matplotlib
+pip3 install numpy scipy pandas matplotlib pillow pyyaml
 ```
 
-**Step 4 – Place the dataset**
+**4. Place the Dataset**
 
-Download the FRA532 Lab 1 dataset and place the sequence folders under:
+Download the FRA532 Lab 1 dataset and place it under `src/FRA532_LAB1_DATASET/`:
 ```
 src/FRA532_LAB1_DATASET/
 ├── fibo_floor3_seq00/
+│   └── fibo_floor3_seq00_0.db3
 ├── fibo_floor3_seq01/
+│   └── fibo_floor3_seq01_0.db3
 └── fibo_floor3_seq02/
+    └── fibo_floor3_seq02_0.db3
 ```
 
-**Step 5 – Build the workspace**
+**5. Build the Workspace**
 ```bash
-colcon build
+cd ~/Mobile_Robot
+colcon build --symlink-install
+```
+
+**6. Source the Environment**
+```bash
 source install/setup.bash
 ```
 
-> **Tip:** colcon installs Python scripts and config files as symlinks. You can edit source files directly without rebuilding.
+**7. (Optional) Add to `.bashrc`**
+```bash
+echo "source ~/Mobile_Robot/install/setup.bash" >> ~/.bashrc
+source ~/.bashrc
+```
 
-### Running Each Part
+### Running the Experiments
+
+You need **two terminals** for each part.
 
 **Part 1 – EKF Odometry Fusion**
 ```bash
-source install/setup.bash
+# Terminal 1
+cd ~/Mobile_Robot && source install/setup.bash
 ros2 launch ekf_filter part1_ekf_fusion.launch.py
 ```
-Outputs: `results/wheel_odometry.csv`, `results/ekf_odometry.csv`, `results/imu_data.csv`
+Outputs saved to `results/`: `wheel_odometry.csv`, `ekf_odometry.csv`, `imu_data.csv`
 
 **Part 2 – ICP Odometry Refinement**
 ```bash
-source install/setup.bash
+# Terminal 1
+cd ~/Mobile_Robot && source install/setup.bash
 ros2 launch ekf_filter part2_icp_refinement.launch.py
 ```
-Outputs: `results/icp_odometry.csv`, `results/icp_map.pgm`, `results/icp_map.yaml`
+Outputs saved to `results/`: `icp_odometry.csv`, `icp_map.pgm`, `icp_map.yaml`
 
-**Part 3 – Full SLAM** (with optional RViz2)
+**Part 3 – Full SLAM**
 ```bash
-source install/setup.bash
+# Terminal 1 – without visualization
+cd ~/Mobile_Robot && source install/setup.bash
 ros2 launch ekf_filter part3_slam.launch.py
-# or with visualization:
+
+# Terminal 1 – with RViz2
+cd ~/Mobile_Robot && source install/setup.bash
 ros2 launch ekf_filter part3_slam_with_rviz.launch.py
 ```
-Outputs: `results/slam_trajectory.csv`, `results/slam_map.pgm`, `results/slam_map.yaml`
+Outputs saved to `results/`: `slam_trajectory.csv`, `slam_map.pgm`, `slam_map.yaml`
 
-**Generate all comparison plots**
+**Generate All Comparison Plots**
 ```bash
+cd ~/Mobile_Robot
 python3 scripts/plot_all_results.py
 ```
+
+> **Switching datasets:** To use a different sequence, pass the `bag_path` parameter:
+> ```bash
+> ros2 launch ekf_filter part1_ekf_fusion.launch.py \
+>     bag_path:=$HOME/Mobile_Robot/src/FRA532_LAB1_DATASET/fibo_floor3_seq01/fibo_floor3_seq01_0.db3
+> ```
 
 ### Repository Structure
 
 ```
 Mobile_Robot/
 ├── src/
+│   ├── FRA532_LAB1_DATASET/               # Dataset rosbags (not tracked by git)
+│   │   ├── fibo_floor3_seq00/
+│   │   ├── fibo_floor3_seq01/
+│   │   └── fibo_floor3_seq02/
 │   ├── differential_drive_model/
 │   │   └── scripts/
-│   │       ├── read_data_node.py          # Rosbag replay with timestamp re-sync
+│   │       ├── read_data_node.py          # Rosbag replay + timestamp re-sync
 │   │       └── wheel_odometry_node.py     # Dead-reckoning from wheel encoders
 │   └── ekf_filter/
 │       ├── config/
@@ -130,17 +154,19 @@ Mobile_Robot/
 │           │   ├── ekf_odometry_node.py   # 5-state EKF (wheel + IMU fusion)
 │           │   └── wheel_odometry_node.py
 │           ├── part2/
-│           │   └── icp_odometry_node.py   # ICP scan matching with adaptive blending
+│           │   └── icp_odometry_node.py   # ICP scan matching + adaptive blending
 │           ├── part3/
 │           │   └── scan_republisher_node.py
 │           ├── auto_map_saver_node.py
 │           ├── icp_map_builder_node.py
-│           ├── path_publisher_node.py
-│           ├── read_data_node.py
-│           └── slam_trajectory_saver_node.py
+│           ├── slam_trajectory_saver_node.py
+│           └── read_data_node.py
 ├── scripts/
-│   └── plot_all_results.py                # Generates all trajectory plots + metrics
-└── results/
+│   ├── plot_all_results.py                # All trajectory plots + metrics
+│   ├── plot_parts.py                      # Part 1 and Part 2 focused comparisons
+│   ├── plot_icp_vs_slam_maps.py           # ICP map vs SLAM map comparisons
+│   └── plot_compare_drift.py              # compare_drift run analysis
+└── results/                               # All output files (auto-created)
     ├── sequence_0/Config_A/ and Config_B/
     ├── sequence_1/Config_A/ and Config_B/
     └── sequence_2/Config_A/ and Config_B/
@@ -328,94 +354,195 @@ Two configurations were tested to study the effect of scan-matching search const
 
 ## 3. Results
 
-### 3.1 Configuration Definition
+### Configuration Definition
 
-The table below defines exactly which SLAM configuration was used for each sequence and method.
+The table below defines which SLAM configuration was used for each sequence and method.
 
-| Sequence | Wheel Odometry | EKF Odometry | ICP Odometry | SLAM |
-|----------|---------------|--------------|--------------|------|
-| Sequence 0 | Config A | Config A | Config A | **Both A and B** |
-| Sequence 1 | Config B | Config B | Config B | **Both A and B** |
-| Sequence 2 | Config A | Config A | Config A | **Both A and B** |
+| Sequence | Rosbag file | Wheel / EKF / ICP run | SLAM runs |
+|----------|------------|----------------------|-----------|
+| Sequence 0 | `fibo_floor3_seq00_0.db3` | Config A | **Both A and B** |
+| Sequence 1 | `fibo_floor3_seq01_0.db3` | Config B | **Both A and B** |
+| Sequence 2 | `fibo_floor3_seq02_0.db3` | Config A | **Both A and B** |
 
-> **Note:** Wheel, EKF, and ICP methods are pure odometry — they do not depend on SLAM config. The "Config A/B" column for these methods indicates which run the data was collected from. SLAM was run separately with both configurations on all three sequences.
+> Wheel, EKF, and ICP are pure odometry methods and do not depend on the SLAM config. SLAM was run independently with both configurations on all three sequences.
 
-**Datasets used:**
-
-| Sequence | Rosbag file | Description |
-|----------|------------|-------------|
-| Sequence 0 | `fibo_floor3_seq00_0.db3` | Empty hallway, straight corridor |
-| Sequence 1 | `fibo_floor3_seq01_0.db3` | Sharp turns, obstacles |
-| Sequence 2 | `fibo_floor3_seq02_0.db3` | Smooth non-aggressive motion |
+**Metric definitions used throughout:**
+- **LCE** = Loop Closure Error (Euclidean distance start→end). Lower = better.
+- **Drift Rate** = `LCE / Total Distance × 100%`. Lower = better.
 
 ---
 
-### 3.2 Trajectory Plots
+### 3.1 Part 1 – EKF Odometry Fusion
 
-#### All 4 Methods per Sequence
+#### Objective
+Implement an Extended Kalman Filter (EKF) to fuse wheel odometry and IMU measurements, obtaining a filtered and more reliable odometry estimate compared to raw wheel odometry.
 
-**Sequence 0 – Empty hallway**
+#### Description
+Wheel odometry is computed from `/joint_states` and fused with IMU measurements from `/imu` using the EKF. The filter estimates robot pose by combining a differential-drive motion model with probabilistic sensor updates (gyroscope, accelerometer, and centripetal acceleration). The result is compared against the baseline dead-reckoning trajectory.
 
-![Sequence 0 – 4 Methods](results/sequence_0_4methods.png)
+#### Trajectory Comparison: Wheel Odometry vs EKF Odometry
 
-**Sequence 1 – Sharp turns**
+Each row is one sequence. Left column shows both methods overlaid; middle and right columns show each method individually with its LCE and drift rate.
 
-![Sequence 1 – 4 Methods](results/sequence_1_4methods.png)
+![Part 1 – Wheel vs EKF](results/part1_wheel_vs_ekf.png)
 
-**Sequence 2 – Smooth motion**
+#### Part 1 Quantitative Results
 
-![Sequence 2 – 4 Methods](results/sequence_2_4methods.png)
+| Sequence | Method | Total Dist (m) | LCE (m) | Drift Rate (%) |
+|----------|--------|---------------|---------|---------------|
+| Seq 0 | Wheel Odometry | 61.82 | 8.877 | 14.36 |
+| Seq 0 | **EKF Odometry** | 55.43 | **4.033** | **7.28** |
+| Seq 1 | Wheel Odometry | 62.69 | 2.882 | 4.60 |
+| Seq 1 | **EKF Odometry** | 56.39 | **1.711** | **3.03** |
+| Seq 2 | Wheel Odometry | 68.59 | 8.761 | 12.77 |
+| Seq 2 | **EKF Odometry** | 59.70 | **2.562** | **4.29** |
 
-#### SLAM Config A vs Config B Comparison
+#### Observations
+- EKF reduces drift rate by an average of **−54%** across all three sequences.
+- The largest improvement is on Seq 0 (−49%) and Seq 2 (−66%), both long traversals where heading error dominates.
+- The gyroscope update is the single most impactful correction — heading drift is the primary failure mode of dead-reckoning.
+- Even with IMU fusion, EKF still accumulates drift because it has no absolute position reference.
 
-**Per-sequence SLAM config comparison:**
+---
 
-![Sequence 0 – Config A vs B](results/sequence_0_both_configs.png)
-![Sequence 1 – Config A vs B](results/sequence_1_both_configs.png)
-![Sequence 2 – Config A vs B](results/sequence_2_both_configs.png)
+### 3.2 Part 2 – ICP Odometry Refinement
+
+#### Objective
+Refine the EKF-based odometry using LiDAR scan matching (ICP) and evaluate the improvement in accuracy and drift compared to EKF alone.
+
+#### Description
+The EKF odometry from Part 1 is used as the initial guess for ICP scan matching on consecutive `/scan` messages. At each scan (5 Hz), ICP finds the optimal rigid transform between the current and previous scan. The result is blended adaptively with the EKF initial guess (5–35% EKF trust) and integrated to produce a LiDAR-based odometry estimate. ICP additionally builds a 2D occupancy map by projecting scans from the estimated poses.
+
+#### Trajectory Comparison: EKF vs ICP Odometry
+
+Each row is one sequence. Left column shows both methods overlaid; middle and right show each individually.
+
+![Part 2 – EKF vs ICP](results/part2_ekf_vs_icp.png)
+
+#### 2D Occupancy Maps from ICP
+
+The ICP node projects LiDAR scans at each estimated pose to build an occupancy grid. Map quality directly reflects positional accuracy.
+
+| Sequence 0 | Sequence 1 | Sequence 2 |
+|:----------:|:----------:|:----------:|
+| ![ICP Map Seq 0](results/sequence_0/ICP_seq0.png) | ![ICP Map Seq 1](results/sequence_1/icp_seq1.png) | ![ICP Map Seq 2](results/sequence_2/icp_seq2.png) |
+
+#### Part 2 Quantitative Results
+
+| Sequence | Method | Total Dist (m) | LCE (m) | Drift Rate (%) |
+|----------|--------|---------------|---------|---------------|
+| Seq 0 | EKF Odometry | 55.43 | 4.033 | 7.28 |
+| Seq 0 | **ICP Odometry** | 66.11 | **4.025** | **6.09** |
+| Seq 1 | EKF Odometry | 56.39 | 1.711 | 3.03 |
+| Seq 1 | **ICP Odometry** | 64.00 | **1.709** | **2.67** |
+| Seq 2 | EKF Odometry | 59.70 | 2.562 | 4.29 |
+| Seq 2 | **ICP Odometry** | 62.46 | **2.567** | **4.11** |
+
+#### Observations
+- ICP improves drift rate by an average of **−10.8%** over EKF.
+- The improvement comes from 5 Hz scan matching that catches positional errors not corrected by the IMU alone.
+- Adaptive blending (falling back to EKF when scan quality is low) prevents degradation in featureless corridor sections where ICP would otherwise diverge.
+- ICP total distance is slightly higher than EKF because scan matching introduces small jitter on straight paths.
+- ICP uniquely produces a 2D occupancy map alongside the trajectory.
+
+---
+
+### 3.3 Part 3 – Full SLAM with slam_toolbox
+
+#### Objective
+Perform full SLAM using `slam_toolbox` and compare its pose estimation and mapping performance with the ICP-based odometry from Part 2.
+
+#### Description
+`slam_toolbox` runs in async mode using `/scan` as laser input and EKF odometry (`/ekf/odometry`) as the odometry source. It builds a pose graph and applies Ceres non-linear optimization with loop closure to produce a globally consistent trajectory and map. Two configurations are tested to study the effect of scan-matching constraints on corridor environments.
+
+#### Config A (Relaxed) vs Config B (Strict) – SLAM Trajectory
+
+**Sequence 0 – Empty Hallway**
+
+![Sequence 0 SLAM Config](results/sequence_0_both_configs.png)
+
+**Sequence 1 – Sharp Turns**
+
+![Sequence 1 SLAM Config](results/sequence_1_both_configs.png)
+
+**Sequence 2 – Smooth Motion**
+
+![Sequence 2 SLAM Config](results/sequence_2_both_configs.png)
 
 **All sequences overview:**
 
-![All Sequences Grid](results/all_sequences_grid.png)
+![All Sequences SLAM Grid](results/all_sequences_grid.png)
 
-**SLAM Config A vs Config B – side-by-side:**
+**Config A vs Config B – side-by-side summary:**
 
 ![SLAM Config Comparison](results/slam_config_comparison.png)
 
+#### 2D Occupancy Maps: ICP vs SLAM Config A vs SLAM Config B
+
+**Sequence 0 – Empty Hallway**
+
+![Sequence 0 Map Comparison](results/sequence_0_icp_vs_slam_maps.png)
+
+**Sequence 1 – Sharp Turns**
+
+![Sequence 1 Map Comparison](results/sequence_1_icp_vs_slam_maps.png)
+
+**Sequence 2 – Smooth Motion**
+
+![Sequence 2 Map Comparison](results/sequence_2_icp_vs_slam_maps.png)
+
+**All sequences map grid (ICP | SLAM-A | SLAM-B):**
+
+![All Sequences Map Grid](results/all_sequences_icp_vs_slam_maps.png)
+
+#### Compare-Drift Run (Sequence 0 – All 4 Methods on Identical Data)
+
+The `results/sequence_0/compare_drift/` folder contains a dedicated run with all four methods active simultaneously, providing a direct apples-to-apples comparison. Both an ICP map and SLAM map were saved from this session.
+
+**ICP Map vs SLAM Map:**
+
+![Compare-Drift Maps](results/sequence_0/compare_drift/compare_drift_maps.png)
+
+**All 4 method trajectories:**
+
+![Compare-Drift Trajectories](results/sequence_0/compare_drift/compare_drift_trajectories.png)
+
+**All 4 trajectories overlaid on occupancy maps:**
+
+![Compare-Drift Trajectories on Map](results/sequence_0/compare_drift/compare_drift_traj_on_map.png)
+
+#### Part 3 Quantitative Results
+
+| Sequence | Method | Total Dist (m) | LCE (m) | Drift Rate (%) |
+|----------|--------|---------------|---------|---------------|
+| Seq 0 | ICP Odometry (Part 2 ref.) | 66.11 | 4.025 | 6.09 |
+| Seq 0 | SLAM Config A | 62.05 | 4.567 | 7.36 |
+| Seq 0 | **SLAM Config B** | 55.74 | **1.216** | **2.18** |
+| Seq 1 | ICP Odometry (Part 2 ref.) | 64.00 | 1.709 | 2.67 |
+| Seq 1 | SLAM Config A | 68.56 | 17.766 | 25.91 |
+| Seq 1 | **SLAM Config B** | 56.41 | **0.643** | **1.14** |
+| Seq 2 | ICP Odometry (Part 2 ref.) | 62.46 | 2.567 | 4.11 |
+| Seq 2 | SLAM Config A | 69.62 | 5.883 | 8.45 |
+| Seq 2 | **SLAM Config B** | 62.11 | **4.033** | **6.49** |
+
+#### Observations
+- **Config B (Strict) consistently outperforms Config A** in all three sequences.
+- The most dramatic difference is Sequence 1: Config A drifts 25.91% (LCE = 17.77 m) while Config B achieves only 1.14% (LCE = 0.64 m). The relaxed ±15 cm search space causes false scan correspondences in the symmetric left/right corridor walls.
+- Config B forces SLAM to stay close to EKF via high variance penalties (`distance=20`, `angle=40`), effectively using EKF as a strong prior and only refining with scan matching.
+- Loop closure in Config B further removes accumulated drift when the robot revisits mapped areas.
+- SLAM Config B produces the sharpest occupancy maps — walls are clean and consistent, reflecting accurate pose estimates throughout the run.
+
+| Map Quality | ICP | SLAM Config A | SLAM Config B |
+|-------------|-----|--------------|--------------|
+| Seq 0 | Clear walls, slight blur | Blurry from drift | Sharp, clean walls |
+| Seq 1 | Turn artifacts | **Badly distorted** | Best quality |
+| Seq 2 | Smooth corridors | Moderate | Good quality |
+
 ---
 
-### 3.3 Generated Maps
+### 3.4 Overall Comparison
 
-#### ICP Occupancy Maps
-
-ICP builds a 2D occupancy grid by projecting LiDAR scans from the ICP-estimated pose at each timestep.
-
-| Sequence | ICP Map |
-|----------|---------|
-| Sequence 0 | `results/sequence_0/Config_A/icp_map.pgm` |
-| Sequence 1 | `results/sequence_1/Config_B/icp_map.pgm` |
-| Sequence 2 | `results/sequence_2/Config_A/icp_map.pgm` |
-
-#### SLAM Occupancy Maps
-
-SLAM (slam_toolbox) generates a globally consistent occupancy grid via pose graph optimization and loop closure.
-
-| Sequence | Config A Map | Config B Map |
-|----------|-------------|-------------|
-| Sequence 0 | `results/sequence_0/Config_A/slam_map.pgm` | `results/sequence_0/Config_B/slam_map.pgm` |
-| Sequence 1 | `results/sequence_1/Config_A/slam_map.pgm` | `results/sequence_1/Config_B/slam_map.pgm` |
-| Sequence 2 | `results/sequence_2/Config_A/slam_map.pgm` | `results/sequence_2/Config_B/slam_map.pgm` |
-
----
-
-### 3.4 Quantitative Metrics
-
-**Metric definitions:**
-- **LCE (Loop Closure Error):** Euclidean distance between the start and end pose. Measures long-term positional accuracy.
-- **Total Distance:** Integrated path length.
-- **Drift Rate:** `LCE / Total Distance × 100%`. Lower is better.
-
-#### Full Results Table
+#### Full Results Table (All Methods, All Sequences)
 
 | Method | Config | Seq | Total Dist (m) | LCE (m) | Drift Rate (%) |
 |--------|--------|-----|---------------|---------|---------------|
@@ -435,60 +562,35 @@ SLAM (slam_toolbox) generates a globally consistent occupancy grid via pose grap
 | SLAM   | A | 2 | 69.62 | 5.883 |  8.45 |
 | SLAM   | **B** | 2 | 62.11 | **4.033** | **6.49** |
 
-#### Average Drift Rate by Method
+#### Average Drift Rate Summary
 
 | Method | Avg Drift Rate | vs Wheel |
 |--------|---------------|---------|
 | Wheel Odometry | 10.58% | baseline |
-| EKF Odometry | 4.87% | −54% |
-| ICP Odometry | 4.29% | −59% |
-| SLAM Config A | 13.91% | worse in Seq 1 |
+| EKF Odometry | 4.87% | **−54%** |
+| ICP Odometry | 4.29% | **−59%** |
+| SLAM Config A | 13.91% | worse (fails Seq 1) |
 | SLAM Config B | **3.27%** | **−69%** |
 
----
+#### Ranking: SLAM Config B > ICP ≈ EKF > Wheel > SLAM Config A (Seq 1)
 
-### 3.5 Discussion
-
-#### Accuracy (Loop Closure Error)
-
-**Ranking: SLAM (Config B) > ICP ≈ EKF > Wheel > SLAM (Config A in Seq 1)**
-
-**Wheel Odometry** accumulates the most error — averaging 10.58% drift rate. With no external reference, every integration step compounds encoder noise and wheel slip. Seq 0 and Seq 2 (longer traversals) reach 8.8 m LCE.
-
-**EKF Odometry** cuts average drift to 4.87% (−54% vs Wheel). The gyroscope update directly corrects angular velocity, which is the primary source of heading drift. The three-stage IMU update pipeline (gyro, accelerometer, centripetal) provides redundant heading corrections during turns.
-
-**ICP Odometry** achieves 4.29% average drift (−10.8% vs EKF). Scan matching at 5 Hz provides environment-relative corrections that catch positional errors from wheel slip. The adaptive blending (5–35% EKF trust) prevents ICP from diverging in featureless straight corridors by falling back to EKF when scan quality is low.
-
-**SLAM Config B** achieves the best accuracy with 3.27% average drift rate. The strict search space (±1.5 cm) and high variance penalties (20/40) force the pose graph to stay close to EKF, preventing false scan correspondences in symmetric corridor geometry. Loop closure further eliminates accumulated drift when the robot revisits mapped areas.
-
-#### Config A vs Config B SLAM
-
-The most critical comparison is Sequence 1 (sharp turns + obstacles):
-
-| Config | Seq 1 LCE | Seq 1 Drift |
-|--------|----------|------------|
-| Config A (Relaxed ±15 cm) | 17.77 m | **25.91%** |
-| Config B (Strict ±1.5 cm) | 0.64 m | **1.14%** |
-
-Config A catastrophically fails on Seq 1. The wide scan-matching search space (±15 cm) allows the solver to find spurious scan correspondences in the symmetrical left/right corridor walls, causing the pose graph to drift far from the true trajectory. Config B prevents this by tightly constraining the search around the EKF estimate.
-
-#### Robustness
+#### Robustness Comparison
 
 | Method | Computation | Slip Robustness | Feature Dependency | Long-term Stability |
 |--------|-------------|-----------------|-------------------|---------------------|
-| Wheel  | Very Fast | Poor | None | Poor |
-| EKF    | Fast | Moderate | None | Fair |
-| ICP    | Medium | Good | High | Fair |
+| Wheel Odometry | Very Fast | Poor | None | Poor |
+| EKF Odometry | Fast | Moderate | None | Fair |
+| ICP Odometry | Medium | Good | High | Fair |
 | SLAM Config A | Slow | Good | High | Variable |
 | SLAM Config B | Slow | Good | High | **Excellent** |
 
-**Key findings:**
+#### Key Findings
 
-1. **Sensor fusion (EKF) reduces drift by ~54% vs wheel-only** — the gyroscope is the most impactful single correction.
-2. **ICP scan matching matches or slightly beats EKF** — adaptive blending prevents degradation in featureless corridors.
-3. **SLAM Config B is consistently the best overall** — strict penalties prevent corridor ambiguity failures and loop closure provides global consistency.
-4. **Config A SLAM is unreliable** — fails badly on Seq 1 (25.91% drift) due to symmetric corridor geometry causing false scan matches.
-5. **SLAM uniquely provides a 2D occupancy map** — enabling autonomous navigation beyond just localization.
+1. **EKF (Part 1) reduces drift by ~54% vs wheel-only.** The gyroscope update corrects heading drift, which is the dominant error source in dead-reckoning.
+2. **ICP (Part 2) further reduces drift by ~11% vs EKF.** Adaptive blending prevents degradation in featureless sections while scan matching catches slip the IMU misses.
+3. **SLAM Config B (Part 3) achieves the best overall accuracy (avg 3.27% drift).** Strict constraints keep the pose graph close to EKF, preventing corridor ambiguity. Loop closure provides global consistency.
+4. **SLAM Config A is unreliable.** A wide search space (±15 cm) causes catastrophic failure on Seq 1 (25.91% drift). Config B is the recommended configuration for symmetric indoor corridors.
+5. **Only SLAM produces a globally consistent 2D map**, making it uniquely suitable for autonomous navigation tasks beyond localization.
 
 ---
 

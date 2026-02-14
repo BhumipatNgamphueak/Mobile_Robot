@@ -13,9 +13,10 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
 
-    # Get package directory
+    # Get package directory and derive workspace results path
     pkg_dir = get_package_share_directory('ekf_filter')
     config_file = os.path.join(pkg_dir, 'config', 'mapper_params_online_async_B.yaml')
+    results_dir = os.path.normpath(os.path.join(pkg_dir, '..', '..', '..', '..', 'results'))
 
     # Launch arguments
     use_sim_time_arg = DeclareLaunchArgument(
@@ -89,7 +90,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'use_sim_time': LaunchConfiguration('use_sim_time'),
-            'output_dir': '/home/prime/Mobile_Robot/results',
+            'output_dir': results_dir,
             'map_name': 'slam_map',
         }],
     )
@@ -101,7 +102,7 @@ def generate_launch_description():
         name='slam_trajectory_saver_node',
         output='screen',
         parameters=[{
-            'output_dir': '/home/prime/Mobile_Robot/results',
+            'output_dir': results_dir,
             'output_file': 'slam_trajectory.csv',
         }],
     )

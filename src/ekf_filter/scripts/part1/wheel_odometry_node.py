@@ -14,6 +14,13 @@ import numpy as np
 import math
 import csv
 import os
+from ament_index_python.packages import get_package_share_directory
+
+
+def _ws_results():
+    share = get_package_share_directory('ekf_filter')
+    ws = os.path.normpath(os.path.join(share, '..', '..', '..', '..'))
+    return os.path.join(ws, 'results')
 
 
 class WheelOdometryNode(Node):
@@ -48,7 +55,7 @@ class WheelOdometryNode(Node):
         self.prev_time = None
 
         # Data logging
-        self.trajectory_file = '/home/prime/Mobile_Robot/results/wheel_odometry.csv'
+        self.trajectory_file = os.path.join(_ws_results(), 'wheel_odometry.csv')
         self.init_csv_file()
 
         self.get_logger().info('Wheel Odometry Node initialized')

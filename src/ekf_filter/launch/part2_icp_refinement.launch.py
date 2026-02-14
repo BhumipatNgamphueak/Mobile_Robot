@@ -6,12 +6,16 @@ Launches all nodes including ICP scan matching, map building, and visualization
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
+import os
+from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
 
-    # RViz config path
-    rviz_config = '/home/prime/Mobile_Robot/rviz_configs/part2_icp.rviz'
+    # Derive workspace paths from installed package share directory
+    pkg_dir = get_package_share_directory('ekf_filter')
+    results_dir = os.path.normpath(os.path.join(pkg_dir, '..', '..', '..', '..', 'results'))
+    rviz_config = os.path.join(pkg_dir, 'rviz', 'slam_view.rviz')
 
     # Read Data Node
     read_data_node = Node(
@@ -52,7 +56,7 @@ def generate_launch_description():
         name='icp_map_builder_node',
         output='screen',
         parameters=[{
-            'output_dir': '/home/prime/Mobile_Robot/results',
+            'output_dir': results_dir,
             'map_name': 'icp_map',
             'resolution': 0.05,
             'map_size_x': 50.0,

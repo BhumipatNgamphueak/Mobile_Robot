@@ -13,8 +13,9 @@ import pandas as pd
 import numpy as np
 import os
 import sys
+from pathlib import Path
 
-RESULTS_DIR = '/home/prime/Mobile_Robot/results'
+RESULTS_DIR = str(Path(__file__).resolve().parent.parent / 'results')
 
 
 def load_trajectory(filename):

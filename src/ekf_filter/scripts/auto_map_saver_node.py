@@ -11,6 +11,13 @@ import numpy as np
 from PIL import Image
 import yaml
 import os
+from ament_index_python.packages import get_package_share_directory
+
+
+def _ws_results():
+    share = get_package_share_directory('ekf_filter')
+    ws = os.path.normpath(os.path.join(share, '..', '..', '..', '..'))
+    return os.path.join(ws, 'results')
 
 
 class AutoMapSaverNode(Node):
@@ -18,7 +25,7 @@ class AutoMapSaverNode(Node):
         super().__init__('auto_map_saver_node')
 
         # Parameters
-        self.declare_parameter('output_dir', '/home/prime/Mobile_Robot/results')
+        self.declare_parameter('output_dir', _ws_results())
         self.declare_parameter('map_name', 'slam_map')
         self.declare_parameter('save_interval', 30.0)  # Save every 30 seconds
 

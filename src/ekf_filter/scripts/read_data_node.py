@@ -7,14 +7,23 @@ from rosidl_runtime_py.utilities import get_message
 import sqlite3
 from sensor_msgs.msg import LaserScan, Imu, JointState
 import os
+from ament_index_python.packages import get_package_share_directory
+
+
+def _ws_root():
+    share = get_package_share_directory('ekf_filter')
+    return os.path.normpath(os.path.join(share, '..', '..', '..', '..'))
 
 
 class Read_data_Node(Node):
     def __init__(self):
         super().__init__('read_data_node')
 
-        # Path to the bag file
-        self.bag_path = '/home/prime/Mobile_Robot/src/FRA532_LAB1_DATASET/fibo_floor3_seq02/fibo_floor3_seq02_0.db3'
+        # Path to the bag file – override via: ros2 run ... --ros-args -p bag_path:=/your/path.db3
+        _default_bag = os.path.join(_ws_root(), 'src', 'FRA532_LAB1_DATASET',
+                                    'fibo_floor3_seq02', 'fibo_floor3_seq02_0.db3')
+        self.declare_parameter('bag_path', _default_bag)
+        self.bag_path = self.get_parameter('bag_path').get_parameter_value().string_value
 
         # Data storage
         self.scan_data = []

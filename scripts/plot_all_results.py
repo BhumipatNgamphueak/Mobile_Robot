@@ -25,7 +25,7 @@ import pandas as pd
 from pathlib import Path
 
 # ── paths ────────────────────────────────────────────────────────────────────
-RESULTS_DIR = Path('/home/prime/Mobile_Robot/results')
+RESULTS_DIR = Path(__file__).resolve().parent.parent / 'results'
 SEQUENCES   = ['sequence_0', 'sequence_1', 'sequence_2']
 SEQ_LABELS  = {
     'sequence_0': 'Seq 0: Empty Hallway',
