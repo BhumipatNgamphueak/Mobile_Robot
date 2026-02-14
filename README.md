@@ -120,14 +120,36 @@ Outputs saved to `results/`: `slam_trajectory.csv`, `slam_map.pgm`, `slam_map.ya
 **Generate All Comparison Plots**
 ```bash
 cd ~/Mobile_Robot
-python3 scripts/plot_all_results.py
+python3 scripts/plot_per_sequence.py
 ```
 
-> **Switching datasets:** To use a different sequence, pass the `bag_path` parameter:
-> ```bash
-> ros2 launch ekf_filter part1_ekf_fusion.launch.py \
->     bag_path:=$HOME/Mobile_Robot/src/FRA532_LAB1_DATASET/fibo_floor3_seq01/fibo_floor3_seq01_0.db3
-> ```
+### Changing the Dataset
+
+By default all launch files use **Sequence 2** (`fibo_floor3_seq02_0.db3`).
+To run a different sequence, pass the `bag_path` argument:
+
+```bash
+# Sequence 0
+ros2 launch ekf_filter part1_ekf_fusion.launch.py \
+    bag_path:=$HOME/Mobile_Robot/src/FRA532_LAB1_DATASET/fibo_floor3_seq00/fibo_floor3_seq00_0.db3
+
+# Sequence 1
+ros2 launch ekf_filter part1_ekf_fusion.launch.py \
+    bag_path:=$HOME/Mobile_Robot/src/FRA532_LAB1_DATASET/fibo_floor3_seq01/fibo_floor3_seq01_0.db3
+
+# Sequence 2 (default – same as running without bag_path)
+ros2 launch ekf_filter part1_ekf_fusion.launch.py \
+    bag_path:=$HOME/Mobile_Robot/src/FRA532_LAB1_DATASET/fibo_floor3_seq02/fibo_floor3_seq02_0.db3
+```
+
+Replace `part1_ekf_fusion.launch.py` with `part2_icp_refinement.launch.py` or `part3_slam.launch.py` for the other parts — the `bag_path` argument works the same way.
+
+**To change the permanent default**, edit line 24 of [src/differential_drive_model/scripts/read_data_node.py](src/differential_drive_model/scripts/read_data_node.py):
+```python
+_default_bag = os.path.join(_ws_root(), 'src', 'FRA532_LAB1_DATASET',
+                            'fibo_floor3_seq02', 'fibo_floor3_seq02_0.db3')
+#                                         ^^^^^ change seq number here
+```
 
 ### Repository Structure
 
