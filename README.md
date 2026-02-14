@@ -37,7 +37,7 @@
 
 **1. Clone the Repository**
 ```bash
-git clone https://github.com/BhumipatNgamphueak/FRA532_Mobile_Lab1.git ~/Mobile_Robot
+git clone https://github.com/BhumipatNgamphueak/Mobile_Robot.git -b Lab1
 cd ~/Mobile_Robot
 ```
 
