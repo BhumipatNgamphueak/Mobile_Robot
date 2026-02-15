@@ -231,7 +231,7 @@ The baseline method integrates wheel encoder ticks using the differential-drive 
 **Velocity computation from encoder ticks:**
 ```
 v     = r/2 * (dφ_R + dφ_L) / dt
-omega = r/L * (dφ_R - dφ_L) / dt
+ω     = r/L * (dφ_R - dφ_L) / dt
 ```
 
 **Dead-reckoning integration** (exact arc model, 20 Hz):
