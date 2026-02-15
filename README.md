@@ -5,14 +5,6 @@
 **Course:** FRA532 Mobile Robotics
 **Lab:** Lab 1 – EKF Odometry Fusion, ICP Refinement, and Full SLAM
 
----
-
-## Abstract
-
-Accurate localization in GPS-denied indoor environments is a fundamental problem in mobile robotics. This report presents the design, implementation, and experimental evaluation of a three-stage 2D localization pipeline on the TurtleBot3 Burger differential-drive robot under ROS 2 Humble. The pipeline progresses from wheel-encoder dead-reckoning, through Extended Kalman Filter (EKF) sensor fusion with an Inertial Measurement Unit (IMU), to Iterative Closest Point (ICP) scan-matching odometry, and culminates in full Simultaneous Localization and Mapping (SLAM) using `slam_toolbox`. Three indoor sequences recorded in the FIBO building (Assumption University, Floor 3) serve as evaluation benchmarks. Performance is quantified by the return-to-start positional error and drift rate. Results demonstrate that EKF fusion reduces dead-reckoning drift by approximately 54%, ICP refinement provides an additional 11% improvement, and SLAM with strict scan-matching constraints achieves the best overall accuracy (3.27% average drift rate). A critical finding is that over-relaxed scan-matching search spaces cause catastrophic localization failure (25.91% drift) in symmetric corridor environments due to perceptual aliasing, while a tightly constrained configuration anchored to EKF odometry remains robust across all scenarios.
-
----
-
 ## Table of Contents
 
 1. [Setup](#1-setup)
@@ -243,14 +235,25 @@ v     = r/2 * (dφ_R + dφ_L) / dt
 omega = r/L * (dφ_R - dφ_L) / dt
 ```
 
-**Dead-reckoning integration** (first-order Euler, 20 Hz):
+**Dead-reckoning integration** (exact arc model, 20 Hz):
+
+For curved motion `|ω| > 1×10⁻⁶ rad/s`:
+```
+x_new = x + (v/ω)·(sin(θ + ω·dt) − sin(θ))
+y_new = y + (v/ω)·(−cos(θ + ω·dt) + cos(θ))
+θ_new = θ + ω·dt
+```
+
+For straight-line motion `|ω| ≈ 0`:
 ```
 x_new = x + v·cos(θ)·dt
 y_new = y + v·sin(θ)·dt
-θ_new = θ + omega·dt
+θ_new = θ  (unchanged)
 ```
 
-This method accumulates unbounded error over time, particularly in heading, because wheel slip and calibration offsets in `r` and `L` are never externally corrected. Heading error is the dominant failure mode: any asymmetric slip between the left and right wheels generates a persistent angular velocity bias that integrates into an ever-growing heading offset, which then corrupts the translational estimate through the nonlinear coupling of `cos(θ)` and `sin(θ)`.
+> Note: The wheel odometry node uses the same exact arc integration formula as the EKF prediction step. The integration method is therefore **not** a differentiator between the two methods — the sole difference is the absence of sensor fusion (no IMU updates) in the wheel odometry baseline.
+
+This method accumulates unbounded error over time because wheel slip and calibration offsets in `r` and `L` are never externally corrected. Heading error is the dominant failure mode: any asymmetric slip between the left and right wheels generates a persistent angular velocity bias that integrates into an ever-growing heading offset, which then corrupts the translational estimate through the nonlinear coupling of `cos(θ)` and `sin(θ)`.
 
 ---
 
@@ -354,22 +357,13 @@ v_from_accel = state[3] + (a_x − bias_x) · dt
 z = [v_from_accel]
 H = [[0, 0, 0, 1, 0]]    # measures state[3] = v
 
-R_accel = diag([0.1907])  # (m/s)²  [calibrated from static accelerometer variance × dt²]
+R_accel = diag([0.1907])  # calibrated raw accelerometer variance (m²/s⁴);
+                          # used directly as conservative noise bound to suppress trust
+                          # in single-step integration (effective σ_v >> typical robot speed)
 ```
-Integrates forward acceleration over one time step to derive a velocity pseudo-measurement. The large noise covariance (σ ≈ 0.44 m/s) assigns low trust to this update, correctly reflecting the high uncertainty of a single-step accelerometer integration.
+Integrates forward acceleration over one time step to derive a velocity pseudo-measurement. `R_accel` is set to the static-calibration accelerometer variance (0.1907 m²/s⁴), which is intentionally much larger than the true velocity-measurement noise would be — this deliberately suppresses the contribution of this update so the filter leans on wheel odometry and the gyroscope for velocity and heading estimates respectively.
 
-**Update 4 – Centripetal Acceleration** `a_y` (20 Hz, `/imu`, only when `|v| > 0.05` and `|a_y| > 0.02`)
-
-```
-ω_centripetal = (a_y − bias_y) / v      # from: a_y = v·ω
-z = [ω_centripetal]
-H = [[0, 0, 0, 0, 1]]    # measures state[4] = ω
-
-R_centripetal = diag([2.0])    # (rad/s)²  — high noise, indirect measurement
-```
-Uses the centripetal acceleration relationship `a_y = v·ω` during turns to provide an independent angular velocity estimate. The high noise covariance (σ = 1.41 rad/s) appropriately discounts this indirect, nonlinear measurement.
-
-All four updates follow the standard EKF correction:
+All three updates follow the standard EKF correction:
 ```
 y = z − H·state                                       # innovation
 S = H·P·Hᵀ + R                                       # innovation covariance
@@ -393,12 +387,14 @@ if d² > threshold → reject measurement (no state update)
 
 #### IMU Bias Calibration
 
-The first **75 IMU samples** (robot must be stationary at startup) are averaged:
+The first **75 IMU samples** (robot must be stationary at startup) are averaged **for accelerometer only**:
 ```python
 accel_bias_x = mean(accel_samples_x[:75])
 accel_bias_y = mean(accel_samples_y[:75])
 ```
-After calibration completes, all accelerometer readings are corrected by subtracting the bias before measurement updates. This static calibration compensates for constant accelerometer offsets but does not account for temperature-dependent gyroscope bias drift during the experiment.
+After calibration completes, all accelerometer readings are corrected by subtracting the bias before measurement updates.
+
+> **Important:** `gyro_bias_z` is **hardcoded to 0.00 rad/s** in the code (`self.gyro_bias_z = 0.00`) and is **not** estimated from the startup samples. This is an offline pre-calibration assumption. If the physical IMU carries a non-zero gyroscope DC bias, this offset will not be removed, and the gyroscope update will inject a persistent heading drift — partially offset by the wheel encoder ω update competing via the Kalman gain, but not eliminated. For the experiments described here the assumption of negligible gyro bias was accepted. For longer missions (> 10 min) or different IMU units, online gyro bias estimation (e.g., augmenting the state vector with a 6th bias state) would be necessary.
 
 ---
 
@@ -410,7 +406,6 @@ After calibration completes, all accelerometer readings are corrected by subtrac
 | `R_odom` | diag([0.0005, 0.0031]) | `self.R_odom` |
 | `R_gyro` | diag([0.0030]) | `self.R_imu_gyro` |
 | `R_accel` | diag([0.1907]) | `self.R_imu_accel` |
-| `R_centripetal` | diag([2.0]) | local in `imu_callback` |
 | Bias samples | 75 | `self.bias_samples_needed` |
 | TF publish rate | 50 Hz | `self.create_timer(0.02, ...)` |
 | Covariance cap | P[i,i] ≤ 10 (pos), 1 (θ), 5 (vel) | end of `ekf_predict` |
@@ -597,8 +592,8 @@ Two configurations were tested to study the effect of scan-matching search const
 | `correlation_search_space_dimension` | 0.3 m (±15 cm) | 0.03 m (±1.5 cm) |
 | `distance_variance_penalty` | 2.5 | **20.0** |
 | `angle_variance_penalty` | 2.5 | **40.0** |
-| `loop_match_minimum_response_fine` | 0.5 | 0.5 |
-| `link_match_minimum_response_fine` | 0.3 | 0.3 |
+| `loop_match_minimum_response_fine` | 0.45 | 0.5 |
+| `link_match_minimum_response_fine` | 0.1 | 0.3 |
 | `resolution` | 0.05 m/px | 0.05 m/px |
 | `max_laser_range` | 3.5 m | 3.5 m |
 | `minimum_travel_distance` | 0.2 m | 0.2 m |
@@ -637,7 +632,7 @@ The table below defines which SLAM configuration was used for each sequence and 
 Implement an Extended Kalman Filter to fuse wheel odometry and IMU measurements, obtaining a filtered odometry estimate with reduced drift compared to raw wheel encoder dead-reckoning.
 
 #### Description
-Wheel odometry is computed from `/joint_states` and fused with IMU measurements from `/imu` using the 5-state EKF described in §2.2. The filter estimates robot pose by combining a differential-drive motion model with probabilistic updates from the gyroscope, forward accelerometer, and centripetal acceleration. The filtered trajectory is compared against the baseline dead-reckoning result.
+Wheel odometry is computed from `/joint_states` and fused with IMU measurements from `/imu` using the 5-state EKF described in §2.2. The filter estimates robot pose by combining a differential-drive motion model with probabilistic updates from the gyroscope and forward accelerometer. The filtered trajectory is compared against the baseline dead-reckoning result.
 
 #### Trajectory Plots — All Methods per Sequence
 
@@ -982,32 +977,12 @@ The following known limitations constrain the conclusions drawn from this work:
 
 2. **No external ground truth.** All error metrics rely on the return-to-start assumption. Rigorous evaluation requires ground truth from a motion capture system or survey-grade positioning.
 
-3. **Static IMU bias calibration only.** The 75-sample startup calibration compensates for fixed accelerometer offset but does not account for gyroscope bias drift during the 5–10 minute experiment. For longer missions, online bias estimation (e.g., via a random walk model in the EKF state vector) would be appropriate.
+3. **Partial IMU bias calibration.** Only accelerometer biases (X and Y axes) are estimated from the 75-sample startup routine. The gyroscope Z-axis bias (`gyro_bias_z`) is hardcoded to `0.00 rad/s` and never estimated from data. Any non-zero gyro DC bias propagates directly into heading error at a rate equal to the bias magnitude. For longer missions or sensors with significant gyro offsets, online bias estimation via state augmentation is required.
 
 4. **ICP frequency mismatch with robot dynamics.** At 5 Hz, the ICP update rate is matched to LiDAR frame rate but means that rapid disturbances between scans (slip events, unexpected obstacles) are unobserved for up to 200 ms.
 
 5. **Single-robot, single-floor, controlled conditions.** All sequences are from one indoor floor under consistent lighting. Generalization to multi-floor environments, outdoor operation, or dynamic obstacle-rich scenes would require additional validation.
 
 6. **SLAM Config B's robustness is contingent on EKF quality.** The strict ±1.5 cm search constraint works only because the EKF provides drift rates of 3–7%. If the EKF degrades (e.g., IMU failure, extreme wheel slip), Config B would constrain the scan matcher to search the wrong neighbourhood, potentially producing worse results than Config A.
-
----
-
-## 6. References
-
-[1] Thrun, S., Burgard, W., and Fox, D. (2005). *Probabilistic Robotics*. MIT Press.
-
-[2] Besl, P. J. and McKay, N. D. (1992). A method for registration of 3-D shapes. *IEEE Transactions on Pattern Analysis and Machine Intelligence*, 14(2), 239–256.
-
-[3] Macenski, S., Martín, F., White, R., and Clavero, J. U. (2021). The Marathon 2: A Navigation System. *IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)*.
-
-[4] Macenski, S. and Jambrecic, I. (2021). SLAM Toolbox: SLAM for the dynamic world. *Journal of Open Source Software*, 6(61), 2783.
-
-[5] Sturm, J., Engelhard, N., Endres, F., Burgard, W., and Cremers, D. (2012). A benchmark for the evaluation of RGB-D SLAM systems. *IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)*, 573–580.
-
-[6] Welch, G. and Bishop, G. (2006). An Introduction to the Kalman Filter. *UNC Chapel Hill Technical Report TR 95-041*.
-
-[7] Zhang, J. and Singh, S. (2014). LOAM: Lidar Odometry and Mapping in Real-time. *Robotics: Science and Systems (RSS)*.
-
----
 
 *Last updated: February 2026*
