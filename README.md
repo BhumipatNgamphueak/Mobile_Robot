@@ -27,7 +27,6 @@
    - [Method Selection Guidelines](#45-method-selection-guidelines)
    - [Metric Limitations](#46-metric-limitations)
 5. [Limitations](#5-limitations)
-6. [References](#6-references)
 
 ---
 
