@@ -923,24 +923,8 @@ The Config A vs Config B experiment provides a controlled demonstration of this 
 
 A key design insight from this experiment is that **the reliability of SLAM is bounded by the quality of its odometric prior in symmetric environments**. A high-quality EKF prior (3–7% drift) enables a correspondingly tight search constraint, which in turn prevents the aliasing failure. This interdependence motivates the pipeline architecture: EKF enables Config B, which enables reliable SLAM.
 
----
 
-### 4.4 Computational Complexity Trade-offs
-
-| Method | Per-step complexity | Sensor rate | Primary bottleneck |
-|--------|--------------------|-----------|--------------------|
-| Wheel Odometry | O(1) | 20 Hz | None |
-| EKF | O(n²), n = 5 | 20–40 Hz | Covariance propagation (negligible for n = 5) |
-| ICP | O(N log N + k·N·log N) | 5 Hz | KD-tree construction; k iterations over N points |
-| SLAM | O(P log P) amortized | 5 Hz + async | Growing pose graph; Ceres optimization |
-
-where N = LiDAR scan points (≈360 for TurtleBot3 Burger), k = ICP iterations (≤200 per scan), P = number of poses in the SLAM graph.
-
-The EKF operates at 20–40 Hz with negligible computational cost for n = 5 states. ICP at 5 Hz is well-matched to the TurtleBot3 LiDAR rate and tractable for 360-point planar scans, but would become prohibitive for 3D LiDAR (N ≈ 100,000+) without algorithmic modifications (e.g., voxel downsampling, GPU acceleration). SLAM's computational cost grows as the pose graph expands, making it unsuitable for indefinitely long-duration missions without periodic marginalization or map compression — both of which `slam_toolbox` supports via its serialization mechanisms.
-
----
-
-### 4.5 Method Selection Guidelines
+### 4.4 Method Selection Guidelines
 
 Based on the experimental evidence, the following selection criteria are proposed:
 
@@ -956,7 +940,7 @@ Based on the experimental evidence, the following selection criteria are propose
 
 ---
 
-### 4.6 Metric Limitations
+### 4.5 Metric Limitations
 
 The Return-to-Start Error (RSE) metric is a practical but imperfect evaluation criterion with two important limitations:
 
