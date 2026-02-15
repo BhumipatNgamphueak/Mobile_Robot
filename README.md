@@ -968,4 +968,6 @@ The following known limitations constrain the conclusions drawn from this work:
 
 6. **SLAM Config B's robustness is contingent on EKF quality.** The strict ±1.5 cm search constraint works only because the EKF provides drift rates of 3–7%. If the EKF degrades (e.g., IMU failure, extreme wheel slip), Config B would constrain the scan matcher to search the wrong neighbourhood, potentially producing worse results than Config A.
 
+7. **Unknown exact loop-closure endpoint.** The RSE metric assumes the robot's physical end-point coincides precisely with its physical start-point. However, the dataset does not include an independent measurement of where the robot actually stopped relative to where it began. Any non-zero physical loop-opening distance (due to the robot not completing a geometrically perfect closed loop) is indistinguishable from localization error in the RSE value. Consequently, reported RSE figures represent an upper bound on true localization error and cannot be decomposed into path-closure error and algorithmic drift without an external reference measurement.
+
 *Last updated: February 2026*
