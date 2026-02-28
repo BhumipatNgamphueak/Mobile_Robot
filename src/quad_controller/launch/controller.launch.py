@@ -54,7 +54,7 @@ def generate_launch_description():
         'trajectory_type',
         default_value='hover',
         description='Trajectory to fly: hover | straight_2d | sine_2d | step_2d '
-                    '| straight_3d | helix | figure8_3d')
+                    '| straight_3d | helix | figure8_3d | cone_helix')
 
     hover_time_arg = DeclareLaunchArgument(
         'hover_time',

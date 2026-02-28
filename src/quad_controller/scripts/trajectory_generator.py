@@ -23,6 +23,7 @@ Part 3  (3-D)
   straight_3d   Straight line with simultaneous x, y, z motion
   helix         Helical spiral: circles in x-y while climbing in z
   figure8_3d    Horizontal figure-8 (lemniscate) at constant z
+  cone_helix    Conical spiral: expanding-radius helix forming a cone
 
 hover (default)
   The drone stays at the configured hover position — useful as baseline
@@ -245,6 +246,64 @@ class Figure8_3D(TrajectoryBase):
         return ref
 
 
+class ConeHelix(TrajectoryBase):
+    """
+    Conical spiral: radius expands linearly with time while climbing in z.
+
+    The path traces an outward-expanding cone — each revolution is wider
+    than the previous one.  Starts at the origin with zero lateral velocity
+    so the drone transitions smoothly from hover.
+
+    Parametrisation
+    ---------------
+      R(t)  = traj_radius * f * t          radius gained per revolution
+      x(t)  = R(t) * sin(ω t)
+      y(t)  = R(t) * (1 - cos(ω t))       phase-shift keeps start at (0,0)
+      z(t)  = hover_z + traj_climb_rate * t
+
+    Velocities (exact derivatives)
+    --------------------------------
+      ẋ  = Ṙ * sin(ω t) + R * ω * cos(ω t)
+      ẏ  = Ṙ * (1 - cos(ω t)) + R * ω * sin(ω t)
+      ż  = traj_climb_rate
+
+    where  Ṙ = traj_radius * f  (constant radius rate)
+
+    Parameters used
+    ---------------
+      traj_radius     : [m] radius added per revolution   (default 0.5)
+      traj_frequency  : [Hz] revolution frequency         (default 0.1)
+      traj_climb_rate : [m/s] vertical climb speed        (default 0.15)
+      hover_z         : [m] starting altitude
+
+    MPC note
+    --------
+    Lateral accelerations grow with R, so use short durations (≤ 30 s) or
+    small traj_radius to keep roll/pitch within the ±15° linearisation bound.
+    """
+
+    def reference(self, t_now):
+        dt    = self._elapsed(t_now)
+        R_rate = self.p['traj_radius'] * self.p['traj_frequency']   # Ṙ [m/s]
+        f      = self.p['traj_frequency']
+        climb  = self.p['traj_climb_rate']
+        z0     = self.p['hover_z']
+        omega  = 2.0 * math.pi * f
+
+        R = R_rate * dt                         # expanding radius
+
+        ref = np.zeros(12)
+        ref[0] = R * math.sin(omega * dt)
+        ref[1] = R * (1.0 - math.cos(omega * dt))
+        ref[2] = z0 + climb * dt
+        ref[6] = (R_rate * math.sin(omega * dt) +
+                  R * omega * math.cos(omega * dt))      # ẋ
+        ref[7] = (R_rate * (1.0 - math.cos(omega * dt)) +
+                  R * omega * math.sin(omega * dt))      # ẏ
+        ref[8] = climb                                    # ż
+        return ref
+
+
 # Map parameter string → class
 TRAJECTORY_CLASSES = {
     'hover':       HoverTrajectory,
@@ -254,6 +313,7 @@ TRAJECTORY_CLASSES = {
     'straight_3d': StraightLine3D,
     'helix':       HelixTrajectory,
     'figure8_3d':  Figure8_3D,
+    'cone_helix':  ConeHelix,
 }
 
 
