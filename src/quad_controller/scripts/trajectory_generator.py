@@ -14,43 +14,47 @@ Flight sequence (per lab spec)
 
 If trajectory_type == 'hover' the generator stays in PRE_HOVER forever.
 
-Part 2  (2-D, x-z plane  —  y = 0 throughout)
-  straight_2d   Constant-speed straight line in +x, constant z
-  sine_2d       x increases at constant speed, z oscillates as a sine wave
-  step_2d       Staircase: climb dz every dx metres in x-z plane
+2D trajectories  (traj_plane = 'xz' or 'xy')
+----------------------------------------------
+  The 'traj_plane' parameter selects the plane for all 2D trajectories:
+    'xz'  (default)  forward = +x, lateral = Δz  (altitude change)
+    'xy'             forward = +x, lateral = +y   (horizontal turn)
+
+  straight_2d   Constant-speed line with optional trapezoidal acceleration
+  sine_2d       Forward at constant speed, lateral oscillates as a sine wave
+  step_2d       Staircase: discrete lateral jumps at fixed forward intervals
+  lemniscate_2d Figure-8 (lemniscate of Bernoulli) — best MPC showcase
+                  Tests both positive/negative motion on coupled axes
+  circle_2d     Full circle — constant centripetal acceleration test
 
 Part 3  (3-D)
-  straight_3d   Straight line with simultaneous x, y, z motion
+--------------
+  straight_3d   Trapezoidal-velocity line along direction [1, 0.5, 0.3]
   helix         Helical spiral: circles in x-y while climbing in z
   figure8_3d    Horizontal figure-8 (lemniscate) at constant z
   cone_helix    Conical spiral: expanding-radius helix forming a cone
+  lissajous_3d  3D Lissajous (freq ratio 1:2:3) — strongest MPC showcase
+                  All three axes move at different frequencies simultaneously
 
 hover (default)
-  The drone stays at the configured hover position — useful as baseline
-  to verify the MPC is working before running trajectories.
+  The drone stays at the configured hover position.
 
 Parameters (all set in config/params.yaml or via CLI)
 --------------------
-  trajectory_type   : string  — one of the names above  (default: hover)
-  publish_rate      : float   — Hz (default 50)
-  hover_time        : float   — seconds to hold hover before trajectory starts
-                                (default 5.0)
-  hover_z           : float   — hover height [m]  (default 1.0)
-  traj_speed        : float   — translational speed [m/s]  (default 0.5)
-  traj_amplitude    : float   — amplitude of oscillation [m]  (default 0.3)
-  traj_frequency    : float   — oscillation frequency [Hz]  (default 0.2)
-  traj_radius       : float   — radius for circular/helix  [m]  (default 1.0)
-  traj_climb_rate   : float   — z climb rate for helix  [m/s]  (default 0.2)
-  traj_yaw_rate     : float   — desired yaw rate [rad/s]  (default 0.0)
-  traj_duration     : float   — seconds to fly trajectory before returning to
-                                hover; 0 = fly forever  (default 0)
-
-ROS2 pros used
---------------
-  * Declared parameters → change trajectory at runtime via `ros2 param set`
-  * MutuallyExclusiveCallbackGroup → timer and goal_pose sub run concurrently
-  * MultiThreadedExecutor
-  * use_sim_time=False → timers start immediately, no /clock dependency
+  trajectory_type   : string  — see names above          (default: hover)
+  traj_plane        : string  — 'xz' or 'xy'             (default: xz)
+  publish_rate      : float   — Hz                        (default 50)
+  hover_time        : float   — seconds before trajectory starts  (default 5.0)
+  hover_z           : float   — hover height [m]          (default 1.0)
+  traj_speed        : float   — translational speed [m/s] (default 0.5)
+  traj_accel        : float   — accel for trapezoidal ramp [m/s²], 0 = instant
+                                (default 0.5)
+  traj_amplitude    : float   — amplitude of oscillation [m] (default 0.3)
+  traj_frequency    : float   — oscillation / orbit frequency [Hz] (default 0.2)
+  traj_radius       : float   — radius for circular/lemniscate [m] (default 0.5)
+  traj_climb_rate   : float   — z climb rate for helix [m/s]  (default 0.15)
+  traj_yaw_rate     : float   — desired yaw rate [rad/s]      (default 0.0)
+  traj_duration     : float   — seconds to fly trajectory, 0 = forever (default 0)
 """
 
 import math
@@ -61,7 +65,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64MultiArray, Int32
 from geometry_msgs.msg import PoseStamped
 
 
@@ -88,6 +92,72 @@ class TrajectoryBase:
             self.t0 = t_now
         return t_now - self.t0
 
+    def _plane_ref(self, fwd: float, lat: float,
+                   vfwd: float = 0.0, vlat: float = 0.0) -> np.ndarray:
+        """
+        Build a 12-state reference from forward/lateral coords in the
+        configured plane.
+
+          'xz'  (default): fwd→x, lat→Δz (altitude offset),  y=0
+          'xy'           : fwd→x, lat→y  (horizontal motion), z=hover_z
+
+        Roll, pitch, yaw and angular rates are all left at zero — the MPC
+        controls attitude internally to achieve the demanded position/velocity.
+        """
+        plane = self.p.get('traj_plane', 'xz')
+        z0    = self.p['hover_z']
+        ref   = np.zeros(12)
+        if plane == 'xy':
+            ref[0], ref[1], ref[2] = fwd, lat, z0
+            ref[6], ref[7], ref[8] = vfwd, vlat, 0.0
+        else:  # xz  (the README default — drone flies in +x while z changes)
+            ref[0], ref[1], ref[2] = fwd, 0.0, z0 + lat
+            ref[6], ref[7], ref[8] = vfwd, 0.0, vlat
+        return ref
+
+    @staticmethod
+    def _trapezoid(dt: float, v_max: float, a: float):
+        """
+        Trapezoidal velocity profile: ramp up at acceleration `a` m/s² to
+        `v_max`, then cruise.  Returns (position, velocity) at elapsed time dt.
+        If a <= 0 use constant speed (no ramp).
+        """
+        if a <= 0:
+            return v_max * dt, v_max
+        t_ramp = v_max / a
+        if dt < t_ramp:
+            return 0.5 * a * dt ** 2, a * dt
+        else:
+            x_ramp = 0.5 * a * t_ramp ** 2
+            return x_ramp + v_max * (dt - t_ramp), v_max
+
+    @staticmethod
+    def _hann_ramp(dt: float, t_ramp: float):
+        """
+        Hann-window amplitude envelope for oscillating trajectories.
+
+        Returns (ramp, ramp_dot) where:
+          ramp(0)      = 0   →  amplitude starts at zero  → v(0) = 0
+          ramp(t_ramp) = 1   →  full amplitude reached
+          ramp(t>t_ramp) = 1 →  steady oscillation
+          ramp_dot = 0 at both endpoints → no jerk discontinuity
+
+        Usage (example for A·sin(ωt)):
+          ramp, ramp_dot = self._hann_ramp(dt, 1.0/f)
+          lat  = A * ramp * sin(ωt)
+          vlat = A * ramp_dot * sin(ωt) + A * ramp * ω * cos(ωt)
+        """
+        if t_ramp <= 0.0 or dt >= t_ramp:
+            return 1.0, 0.0
+        s        = math.pi * dt / t_ramp
+        ramp     = 0.5 * (1.0 - math.cos(s))
+        ramp_dot = 0.5 * math.pi / t_ramp * math.sin(s)
+        return ramp, ramp_dot
+
+
+# ---------------------------------------------------------------------------
+# Hover
+# ---------------------------------------------------------------------------
 
 class HoverTrajectory(TrajectoryBase):
     """Stay at a fixed hover position."""
@@ -100,149 +170,276 @@ class HoverTrajectory(TrajectoryBase):
         return ref
 
 
+# ---------------------------------------------------------------------------
+# Part 2 — 2D trajectories  (plane selected by traj_plane)
+# ---------------------------------------------------------------------------
+
 class StraightLine2D(TrajectoryBase):
-    """Move in +x at constant speed; z constant. (x-z plane trajectory)"""
+    """
+    Straight line in the configured plane (+x = forward direction).
+
+    Trapezoidal velocity profile (traj_accel > 0):
+      - Ramps from 0 to traj_speed at traj_accel m/s²
+      - Then cruises at traj_speed
+      - Provides smooth acceleration feedforward to the MPC
+
+    If traj_accel = 0: constant speed from start (legacy behaviour).
+
+    MPC showcase value:
+      The velocity feedforward allows the MPC to track the exact cruise
+      speed without steady-state lag, unlike a pure error-based controller.
+    """
 
     def reference(self, t_now):
-        dt = self._elapsed(t_now)
-        v  = self.p['traj_speed']
-        ref = np.zeros(12)
-        ref[0] = v * dt           # x
-        ref[1] = 0.0              # y = 0  (stay in x-z plane)
-        ref[2] = self.p['hover_z']
-        ref[6] = v                # ẋ
-        return ref
+        dt    = self._elapsed(t_now)
+        v_max = self.p['traj_speed']
+        a     = self.p.get('traj_accel', 0.5)
+
+        pos, vel = self._trapezoid(dt, v_max, a)
+        return self._plane_ref(pos, 0.0, vel, 0.0)
 
 
 class SineWave2D(TrajectoryBase):
     """
-    x-z plane trajectory: x increases at constant speed,
-    z oscillates as a sine wave. y = 0 throughout.
-    z(t) = hover_z + A * sin(2π f t),  y = 0 (x-z plane)
-    """
+    Forward at constant speed; lateral axis oscillates as a sine wave.
 
-    def reference(self, t_now):
-        dt = self._elapsed(t_now)
-        v  = self.p['traj_speed']
-        A  = self.p['traj_amplitude']
-        f  = self.p['traj_frequency']
-        z0 = self.p['hover_z']
-        omega = 2.0 * math.pi * f
+    traj_plane='xz' : drone advances in +x while altitude oscillates
+    traj_plane='xy' : drone advances in +x while y-position slaloms
 
-        ref = np.zeros(12)
-        ref[0] = v * dt                              # x  (forward)
-        ref[1] = 0.0                                 # y = 0  (x-z plane)
-        ref[2] = z0 + A * math.sin(omega * dt)       # z  oscillates
-        ref[6] = v                                   # ẋ
-        ref[8] = A * omega * math.cos(omega * dt)    # ż
-        return ref
+    Smooth startup: oscillation amplitude is ramped using a Hann window
+    over the first full period (1/f seconds).
 
+      Without ramp: vlat(0) = A·ω ≠ 0  →  velocity step at trajectory start
+      With ramp:    vlat(0) = 0         →  smooth entry from hover
 
-class StaircaseStep2D(TrajectoryBase):
-    """
-    Staircase in x-z: advance dx in x then climb dz in z, repeat.
-    Both x and z move in steps; drone stays in x-z plane.
+    Full velocity feedforward (including the ramp derivative) is provided
+    so the MPC can feed-forward both the oscillation and the slow amplitude
+    envelope without any lag.
     """
 
     def reference(self, t_now):
         dt    = self._elapsed(t_now)
         v     = self.p['traj_speed']
-        A     = self.p['traj_amplitude']     # height per step [m]
-        f     = self.p['traj_frequency']     # step frequency [Hz]
-        z0    = self.p['hover_z']
+        A     = self.p['traj_amplitude']
+        f     = self.p['traj_frequency']
+        omega = 2.0 * math.pi * f
 
-        # Triangular wave for z gives a smooth staircase
-        period = 1.0 / f
-        phase  = (dt % period) / period      # 0..1 within period
-        step   = math.floor(dt * f)
-        z = z0 + A * step * 0.5             # staircase climbs
-        # Limit z to hover_z + 2*amplitude range then cycle back
-        z_range = 2.0 * A
-        z = z0 + (z - z0) % z_range
+        ramp, ramp_dot = self._hann_ramp(dt, 1.0 / f)
 
-        ref = np.zeros(12)
-        ref[0] = v * dt
-        ref[1] = 0.0
-        ref[2] = z
-        ref[6] = v
-        return ref
+        lat  = A * ramp * math.sin(omega * dt)
+        vlat = (A * ramp_dot * math.sin(omega * dt) +
+                A * ramp    * omega * math.cos(omega * dt))
+
+        return self._plane_ref(v * dt, lat, v, vlat)
 
 
-class StraightLine3D(TrajectoryBase):
+class StaircaseStep2D(TrajectoryBase):
     """
-    Move along direction [1, 0.5, 0.3] (normalised) at constant speed.
-    Demonstrates simultaneous x, y, z motion.
+    Staircase: advance continuously in the forward direction; make discrete
+    lateral jumps every 1/traj_frequency seconds.
+
+    traj_plane='xz': altitude staircase (climb traj_amplitude/2 each step)
+    traj_plane='xy': y-position staircase (horizontal step changes)
+
+    The discrete steps (zero velocity feedforward on the lateral axis)
+    act as step-response inputs — a good test of settling time and overshoot
+    for any controller.
     """
 
     def reference(self, t_now):
-        dt   = self._elapsed(t_now)
-        v    = self.p['traj_speed']
-        z0   = self.p['hover_z']
-        # Direction vector (normalised)
-        d = np.array([1.0, 0.5, 0.3])
-        d = d / np.linalg.norm(d)
+        dt = self._elapsed(t_now)
+        v  = self.p['traj_speed']
+        A  = self.p['traj_amplitude']  # lateral shift per step [m]
+        f  = self.p['traj_frequency']  # step frequency [Hz]
 
-        pos = np.array([0.0, 0.0, z0]) + d * v * dt
-        vel = d * v
+        step = math.floor(dt * f)
+        lat  = A * step * 0.5
+        lat  = lat % (2.0 * A)         # cycle back after 4 steps
 
-        ref = np.zeros(12)
-        ref[0:3] = pos
-        ref[6:9] = vel
-        return ref
+        # No velocity feedforward on the lateral axis (it's a step input)
+        return self._plane_ref(v * dt, lat, v, 0.0)
 
 
-class HelixTrajectory(TrajectoryBase):
+class Lemniscate2D(TrajectoryBase):
     """
-    Helix spiral: circle in x-y while climbing in z.
-    Starts from hover position (0, 0) using phase-shifted circle:
-      x(t) = R sin(ω t),  y(t) = R (1 - cos(ω t)),  z(t) = z0 + climb * t
+    Figure-8 (lemniscate of Bernoulli) in the configured plane.
 
-    Yaw is kept at zero — the linearised MPC tracks lateral motion via
-    roll/pitch far more reliably than when simultaneously rotating yaw.
+    Parametric form (starts and returns to origin at t=0, t=1/f, …):
+      fwd(t) = R · sin(ωt)
+      lat(t) = (R/2) · sin(2ωt)
+
+    Why this is the best 2D MPC showcase:
+    - Tests both positive AND negative motion on both axes
+    - Requires look-ahead at the crossing point (velocity reversal near origin)
+    - PID overshoots at the direction reversals; MPC anticipates and brakes early
+    - The 2:1 frequency coupling challenges pure error-based controllers
+    - Continuous and differentiable → full velocity feedforward available
+
+    Parameters: traj_radius (R), traj_frequency (f), traj_plane
     """
 
     def reference(self, t_now):
         dt    = self._elapsed(t_now)
         R     = self.p['traj_radius']
         f     = self.p['traj_frequency']
-        climb = self.p['traj_climb_rate']
-        z0    = self.p['hover_z']
         omega = 2.0 * math.pi * f
 
+        ramp, ramp_dot = self._hann_ramp(dt, 1.0 / f)
+        R_eff = R * ramp
+
+        fwd  = R_eff * math.sin(omega * dt)
+        lat  = (R_eff / 2.0) * math.sin(2.0 * omega * dt)
+        vfwd = (R * ramp_dot * math.sin(omega * dt) +
+                R_eff * omega * math.cos(omega * dt))
+        vlat = (R * ramp_dot / 2.0 * math.sin(2.0 * omega * dt) +
+                R_eff * omega * math.cos(2.0 * omega * dt))
+
+        return self._plane_ref(fwd, lat, vfwd, vlat)
+
+
+class Circle2D(TrajectoryBase):
+    """
+    Full circle in the configured plane.
+
+    Starts at origin, sweeps a radius-R circle:
+      fwd(t) = R_eff · sin(ωt)
+      lat(t) = R_eff · (1 − cos(ωt))
+
+    Smooth startup: radius ramps from 0 to R via Hann window (one revolution).
+    Without ramp vfwd(0) = R·ω ≠ 0; with ramp all initial velocities = 0.
+
+    Why this is a good MPC showcase:
+    - Requires sustained centripetal acceleration on both axes simultaneously
+    - In xy-plane with wind: shows integral action holding the orbit
+    - In xz-plane: tests combined altitude + lateral control at constant load
+
+    Parameters: traj_radius (R), traj_frequency (f), traj_plane
+    """
+
+    def reference(self, t_now):
+        dt    = self._elapsed(t_now)
+        R     = self.p['traj_radius']
+        f     = self.p['traj_frequency']
+        omega = 2.0 * math.pi * f
+
+        ramp, ramp_dot = self._hann_ramp(dt, 1.0 / f)
+        R_eff = R * ramp
+
+        fwd  = R_eff * math.sin(omega * dt)
+        lat  = R_eff * (1.0 - math.cos(omega * dt))
+        vfwd = (R * ramp_dot * math.sin(omega * dt) +
+                R_eff * omega * math.cos(omega * dt))
+        vlat = (R * ramp_dot * (1.0 - math.cos(omega * dt)) +
+                R_eff * omega * math.sin(omega * dt))
+
+        return self._plane_ref(fwd, lat, vfwd, vlat)
+
+
+# ---------------------------------------------------------------------------
+# Part 3 — 3D trajectories
+# ---------------------------------------------------------------------------
+
+class StraightLine3D(TrajectoryBase):
+    """
+    Move along direction [1, 0.5, 0.3] (normalised) with trapezoidal speed.
+
+    Uses the same traj_accel ramp as StraightLine2D.
+    Demonstrates simultaneous x, y, z motion with smooth acceleration.
+    """
+
+    def reference(self, t_now):
+        dt    = self._elapsed(t_now)
+        v_max = self.p['traj_speed']
+        a     = self.p.get('traj_accel', 0.5)
+        z0    = self.p['hover_z']
+
+        d = np.array([1.0, 0.5, 0.3])
+        d = d / np.linalg.norm(d)
+
+        dist, speed = self._trapezoid(dt, v_max, a)
+
         ref = np.zeros(12)
-        ref[0] =  R * math.sin(omega * dt)
-        ref[1] =  R * (1.0 - math.cos(omega * dt))
+        ref[0:3] = np.array([0.0, 0.0, z0]) + d * dist
+        ref[6:9] = d * speed
+        return ref
+
+
+class HelixTrajectory(TrajectoryBase):
+    """
+    Helix spiral: circle in x-y while climbing in z.
+
+      x(t) = R_eff(t) · sin(ωt)
+      y(t) = R_eff(t) · (1 − cos(ωt))
+      z(t) = z0 + climb · t
+
+    Smooth startup: orbit radius ramps from 0 to R via Hann window over
+    the first full revolution (1/f seconds).
+
+      Without ramp: vx(0) = R·ω ≠ 0  →  hard jerk at trajectory start
+      With ramp:    vx(0) = vy(0) = 0 →  smooth entry from hover
+
+    Exact velocity feedforward accounts for the changing radius (chain rule):
+      ẋ = Ṙ · sin(ωt) + R_eff · ω · cos(ωt)
+      ẏ = Ṙ · (1−cos(ωt)) + R_eff · ω · sin(ωt)
+      ż = climb  (constant)
+
+    Yaw is kept at zero — the linearised MPC tracks lateral motion via
+    roll/pitch.  Tracking a rotating yaw while commanding roll/pitch would
+    couple badly with the small-angle linearisation.
+    """
+
+    def reference(self, t_now):
+        dt    = self._elapsed(t_now)
+        R     = self.p['traj_radius']
+        f     = self.p['traj_frequency']
+        omega = 2.0 * math.pi * f
+        climb = self.p['traj_climb_rate']
+        z0    = self.p['hover_z']
+
+        ramp, ramp_dot = self._hann_ramp(dt, 1.0 / f)
+        R_eff = R * ramp
+        R_dot = R * ramp_dot   # dR_eff/dt
+
+        ref = np.zeros(12)
+        ref[0] =  R_eff * math.sin(omega * dt)
+        ref[1] =  R_eff * (1.0 - math.cos(omega * dt))
         ref[2] = z0 + climb * dt
-        ref[6] =  R * omega * math.cos(omega * dt)    # ẋ
-        ref[7] =  R * omega * math.sin(omega * dt)    # ẏ
-        ref[8] = climb                                 # ż
-        # yaw = 0: the linearised MPC cannot reliably track continuous
-        # yaw rotation while also commanding large roll/pitch for
-        # lateral motion — the coupling destabilises the controller.
+        ref[6] =  R_dot * math.sin(omega * dt) + R_eff * omega * math.cos(omega * dt)
+        ref[7] =  R_dot * (1.0 - math.cos(omega * dt)) + R_eff * omega * math.sin(omega * dt)
+        ref[8] = climb
         return ref
 
 
 class Figure8_3D(TrajectoryBase):
     """
-    Horizontal figure-8 (lemniscate of Bernoulli) at constant altitude.
-    x(t) = A sin(ωt),   y(t) = A/2 sin(2ωt),   z = hover_z
+    Horizontal figure-8 (lemniscate) at constant altitude.
 
-    Yaw is kept at zero for the same reason as HelixTrajectory.
+      x(t) = R_eff · sin(ωt)
+      y(t) = (R_eff/2) · sin(2ωt)
+      z(t) = hover_z
+
+    Smooth startup via Hann window radius ramp (one revolution).
+    Without ramp vx(0) = vy(0) = R·ω ≠ 0; with ramp both start at 0.
     """
 
     def reference(self, t_now):
         dt    = self._elapsed(t_now)
-        A     = self.p['traj_radius']
+        R     = self.p['traj_radius']
         f     = self.p['traj_frequency']
-        z0    = self.p['hover_z']
         omega = 2.0 * math.pi * f
+        z0    = self.p['hover_z']
+
+        ramp, ramp_dot = self._hann_ramp(dt, 1.0 / f)
+        R_eff = R * ramp
 
         ref = np.zeros(12)
-        ref[0] = A * math.sin(omega * dt)
-        ref[1] = (A / 2.0) * math.sin(2.0 * omega * dt)
+        ref[0] = R_eff * math.sin(omega * dt)
+        ref[1] = (R_eff / 2.0) * math.sin(2.0 * omega * dt)
         ref[2] = z0
-        ref[6] = A * omega * math.cos(omega * dt)              # ẋ
-        ref[7] = A * omega * math.cos(2.0 * omega * dt)        # ẏ
+        ref[6] = (R * ramp_dot * math.sin(omega * dt) +
+                  R_eff * omega * math.cos(omega * dt))
+        ref[7] = (R * ramp_dot / 2.0 * math.sin(2.0 * omega * dt) +
+                  R_eff * omega * math.cos(2.0 * omega * dt))
         return ref
 
 
@@ -250,70 +447,102 @@ class ConeHelix(TrajectoryBase):
     """
     Conical spiral: radius expands linearly with time while climbing in z.
 
-    The path traces an outward-expanding cone — each revolution is wider
-    than the previous one.  Starts at the origin with zero lateral velocity
-    so the drone transitions smoothly from hover.
+    R(t) = Ṙ·t   where  Ṙ = traj_radius · traj_frequency [m/s]
+    x(t) = R(t)·sin(ωt),   y(t) = R(t)·(1−cos(ωt)),   z = z0 + climb·t
 
-    Parametrisation
-    ---------------
-      R(t)  = traj_radius * f * t          radius gained per revolution
-      x(t)  = R(t) * sin(ω t)
-      y(t)  = R(t) * (1 - cos(ω t))       phase-shift keeps start at (0,0)
-      z(t)  = hover_z + traj_climb_rate * t
-
-    Velocities (exact derivatives)
-    --------------------------------
-      ẋ  = Ṙ * sin(ω t) + R * ω * cos(ω t)
-      ẏ  = Ṙ * (1 - cos(ω t)) + R * ω * sin(ω t)
-      ż  = traj_climb_rate
-
-    where  Ṙ = traj_radius * f  (constant radius rate)
-
-    Parameters used
-    ---------------
-      traj_radius     : [m] radius added per revolution   (default 0.5)
-      traj_frequency  : [Hz] revolution frequency         (default 0.1)
-      traj_climb_rate : [m/s] vertical climb speed        (default 0.15)
-      hover_z         : [m] starting altitude
-
-    MPC note
-    --------
-    Lateral accelerations grow with R, so use short durations (≤ 30 s) or
-    small traj_radius to keep roll/pitch within the ±15° linearisation bound.
+    Velocities (exact time derivatives):
+      ẋ = Ṙ·sin(ωt) + R·ω·cos(ωt)
+      ẏ = Ṙ·(1−cos(ωt)) + R·ω·sin(ωt)
+      ż = traj_climb_rate
     """
 
     def reference(self, t_now):
         dt    = self._elapsed(t_now)
-        R_rate = self.p['traj_radius'] * self.p['traj_frequency']   # Ṙ [m/s]
-        f      = self.p['traj_frequency']
-        climb  = self.p['traj_climb_rate']
-        z0     = self.p['hover_z']
-        omega  = 2.0 * math.pi * f
+        R_dot = self.p['traj_radius'] * self.p['traj_frequency']
+        omega = 2.0 * math.pi * self.p['traj_frequency']
+        climb = self.p['traj_climb_rate']
+        z0    = self.p['hover_z']
 
-        R = R_rate * dt                         # expanding radius
+        R = R_dot * dt
 
         ref = np.zeros(12)
         ref[0] = R * math.sin(omega * dt)
         ref[1] = R * (1.0 - math.cos(omega * dt))
         ref[2] = z0 + climb * dt
-        ref[6] = (R_rate * math.sin(omega * dt) +
-                  R * omega * math.cos(omega * dt))      # ẋ
-        ref[7] = (R_rate * (1.0 - math.cos(omega * dt)) +
-                  R * omega * math.sin(omega * dt))      # ẏ
-        ref[8] = climb                                    # ż
+        ref[6] = R_dot * math.sin(omega * dt) + R * omega * math.cos(omega * dt)
+        ref[7] = R_dot * (1.0 - math.cos(omega * dt)) + R * omega * math.sin(omega * dt)
+        ref[8] = climb
         return ref
 
 
-# Map parameter string → class
+class Lissajous3D(TrajectoryBase):
+    """
+    3D Lissajous figure with frequency ratio 1:2:3.
+
+      x(t) = R · sin(  ωt)
+      y(t) = R · sin(2·ωt)
+      z(t) = z0 + A · sin(3·ωt)
+
+    Why this is the strongest 3D MPC showcase:
+    - All three axes move simultaneously at different frequencies
+    - The 1:2:3 ratio makes the path quasi-aperiodic → visits the whole volume
+    - No axis can be tracked independently — they couple through roll/pitch
+    - MPC's prediction horizon lets it anticipate the multi-axis reversals
+    - A PID or LQR with no feedforward will show systematic phase lag on every axis
+
+    Key parameters:
+      traj_radius    [m]  — amplitude in x and y
+      traj_amplitude [m]  — amplitude in z  (keep ≤ hover_z to avoid ground)
+      traj_frequency [Hz] — base frequency  (0.15 Hz → x period ≈ 6.7 s)
+
+    Suggested settings for a 10 s experiment:
+      traj_radius:=0.4  traj_amplitude:=0.25  traj_frequency:=0.15
+    """
+
+    def reference(self, t_now):
+        dt    = self._elapsed(t_now)
+        R     = self.p['traj_radius']
+        A     = self.p['traj_amplitude']
+        f     = self.p['traj_frequency']
+        omega = 2.0 * math.pi * f
+        z0    = self.p['hover_z']
+
+        ramp, ramp_dot = self._hann_ramp(dt, 1.0 / f)
+        R_eff = R * ramp
+        A_eff = A * ramp
+
+        ref = np.zeros(12)
+        ref[0] = R_eff * math.sin(omega * dt)
+        ref[1] = R_eff * math.sin(2.0 * omega * dt)
+        ref[2] = z0 + A_eff * math.sin(3.0 * omega * dt)
+        ref[6] = (R * ramp_dot * math.sin(omega * dt) +
+                  R_eff * omega * math.cos(omega * dt))
+        ref[7] = (R * ramp_dot * math.sin(2.0 * omega * dt) +
+                  2.0 * R_eff * omega * math.cos(2.0 * omega * dt))
+        ref[8] = (A * ramp_dot * math.sin(3.0 * omega * dt) +
+                  3.0 * A_eff * omega * math.cos(3.0 * omega * dt))
+        return ref
+
+
+# ---------------------------------------------------------------------------
+# Catalogue
+# ---------------------------------------------------------------------------
+
 TRAJECTORY_CLASSES = {
-    'hover':       HoverTrajectory,
-    'straight_2d': StraightLine2D,
-    'sine_2d':     SineWave2D,
-    'step_2d':     StaircaseStep2D,
-    'straight_3d': StraightLine3D,
-    'helix':       HelixTrajectory,
-    'figure8_3d':  Figure8_3D,
-    'cone_helix':  ConeHelix,
+    # Baseline
+    'hover':          HoverTrajectory,
+    # Part 2 — 2D (plane: xz or xy)
+    'straight_2d':    StraightLine2D,
+    'sine_2d':        SineWave2D,
+    'step_2d':        StaircaseStep2D,
+    'lemniscate_2d':  Lemniscate2D,
+    'circle_2d':      Circle2D,
+    # Part 3 — 3D
+    'straight_3d':    StraightLine3D,
+    'helix':          HelixTrajectory,
+    'figure8_3d':     Figure8_3D,
+    'cone_helix':     ConeHelix,
+    'lissajous_3d':   Lissajous3D,
 }
 
 
@@ -321,10 +550,9 @@ TRAJECTORY_CLASSES = {
 # ROS2 Node
 # ---------------------------------------------------------------------------
 
-# Phase constants
-_PHASE_PRE_HOVER  = 0   # stabilise at hover before trajectory
-_PHASE_FLYING     = 1   # execute the active trajectory
-_PHASE_POST_HOVER = 2   # return to hover after trajectory ends
+_PHASE_PRE_HOVER  = 0
+_PHASE_FLYING     = 1
+_PHASE_POST_HOVER = 2
 
 
 class TrajectoryGenerator(Node):
@@ -342,12 +570,14 @@ class TrajectoryGenerator(Node):
         self.declare_parameter('hover_x',            0.0)
         self.declare_parameter('hover_y',            0.0)
         self.declare_parameter('traj_speed',         0.5)
+        self.declare_parameter('traj_accel',         0.5)   # m/s²; 0 = instant
         self.declare_parameter('traj_amplitude',     0.3)
         self.declare_parameter('traj_frequency',     0.2)
         self.declare_parameter('traj_radius',        0.5)
         self.declare_parameter('traj_climb_rate',    0.15)
         self.declare_parameter('traj_yaw_rate',      0.0)
         self.declare_parameter('traj_duration',      0.0)
+        self.declare_parameter('traj_plane',         'xz')  # 'xz' or 'xy'
 
         self._load_params()
 
@@ -371,21 +601,25 @@ class TrajectoryGenerator(Node):
         # ------------------------------------------------------------------ #
         self.ref_pub = self.create_publisher(
             Float64MultiArray, '/reference_state', reliable_qos)
+        self.phase_pub = self.create_publisher(
+            Int32, '/trajectory_phase', reliable_qos)
+        self._last_published_phase = -1
 
         self.create_subscription(
             PoseStamped, '/goal_pose', self._goal_cb,
             reliable_qos, callback_group=sub_grp)
 
         # ------------------------------------------------------------------ #
-        # Timer  (use wall clock — use_sim_time=False set in launch file)
+        # Timer  (wall clock — use_sim_time=False so timers start immediately)
         # ------------------------------------------------------------------ #
         self._dt = 1.0 / self._rate
         self._t0 = self.get_clock().now().nanoseconds * 1e-9
         self.create_timer(self._dt, self._publish_cb, callback_group=timer_grp)
 
+        plane_str = self._params.get('traj_plane', 'xz').upper()
         phase_desc = (
             f'hover {self._hover_time:.0f}s → '
-            f'fly "{self._traj_type}"'
+            f'fly "{self._traj_type}" [{plane_str}]'
             + (f' {self._duration:.0f}s → hover' if self._duration > 0 else ' (forever)')
         ) if self._traj_type != 'hover' else 'hover (steady)'
 
@@ -409,11 +643,13 @@ class TrajectoryGenerator(Node):
             'hover_x':         g('hover_x').value,
             'hover_y':         g('hover_y').value,
             'traj_speed':      g('traj_speed').value,
+            'traj_accel':      g('traj_accel').value,
             'traj_amplitude':  g('traj_amplitude').value,
             'traj_frequency':  g('traj_frequency').value,
             'traj_radius':     g('traj_radius').value,
             'traj_climb_rate': g('traj_climb_rate').value,
             'traj_yaw_rate':   g('traj_yaw_rate').value,
+            'traj_plane':      g('traj_plane').value,
         }
 
         cls = TRAJECTORY_CLASSES.get(self._traj_type, HoverTrajectory)
@@ -421,12 +657,9 @@ class TrajectoryGenerator(Node):
             self.get_logger().warn(
                 f'Unknown trajectory_type "{self._traj_type}", falling back to hover')
 
-        # Phase state machine
         self._phase        = _PHASE_PRE_HOVER
-        self._phase_t0     = None     # set on first publish tick
-        # PRE_HOVER uses a plain HoverTrajectory
+        self._phase_t0     = None
         self._hover_traj   = HoverTrajectory(self._params)
-        # Active trajectory (used during FLYING phase)
         self._active_traj  = cls(self._params)
 
     # ---------------------------------------------------------------------- #
@@ -442,7 +675,7 @@ class TrajectoryGenerator(Node):
         self._params['hover_z'] = z
         self._hover_traj.p  = self._params.copy()
         self._active_traj.p = self._params.copy()
-        self._hover_traj.t0 = None    # reset hover reference
+        self._hover_traj.t0 = None
         self.get_logger().info(
             f'Goal updated → ({msg.pose.position.x:.2f}, '
             f'{msg.pose.position.y:.2f}, {z:.2f})')
@@ -450,39 +683,45 @@ class TrajectoryGenerator(Node):
     def _publish_cb(self):
         t_now = self.get_clock().now().nanoseconds * 1e-9
 
-        # Initialise phase clock on first tick
         if self._phase_t0 is None:
             self._phase_t0 = t_now
             self._hover_traj.start(t_now)
 
-        elapsed = t_now - self._phase_t0   # seconds since phase started
+        elapsed = t_now - self._phase_t0
 
         # ---- Phase transitions ----
         if self._phase == _PHASE_PRE_HOVER:
             if self._traj_type != 'hover' and elapsed >= self._hover_time:
-                self._phase = _PHASE_FLYING
+                self._phase    = _PHASE_FLYING
                 self._phase_t0 = t_now
-                elapsed = 0.0
+                elapsed        = 0.0
                 self._active_traj.start(t_now)
                 self.get_logger().info(
-                    f'Phase → FLYING  trajectory="{self._traj_type}"')
+                    f'Phase → FLYING  trajectory="{self._traj_type}"  '
+                    f'plane={self._params.get("traj_plane","xz")}')
 
         elif self._phase == _PHASE_FLYING:
             if self._duration > 0 and elapsed >= self._duration:
-                self._phase = _PHASE_POST_HOVER
+                self._phase    = _PHASE_POST_HOVER
                 self._phase_t0 = t_now
-                self._hover_traj.t0 = None   # re-anchor hover to now
+                self._hover_traj.t0 = None
                 self.get_logger().info('Phase → POST_HOVER  (returning to hover)')
 
         # ---- Select active reference ----
-        if self._phase == _PHASE_FLYING:
-            ref = self._active_traj.reference(t_now)
-        else:
-            ref = self._hover_traj.reference(t_now)
+        ref = (self._active_traj.reference(t_now)
+               if self._phase == _PHASE_FLYING
+               else self._hover_traj.reference(t_now))
 
         msg = Float64MultiArray()
         msg.data = ref.tolist()
         self.ref_pub.publish(msg)
+
+        # Publish phase on every change so data_collector can gate recording
+        if self._phase != self._last_published_phase:
+            phase_msg = Int32()
+            phase_msg.data = self._phase
+            self.phase_pub.publish(phase_msg)
+            self._last_published_phase = self._phase
 
     # ---------------------------------------------------------------------- #
     # Public method: switch trajectory at runtime
@@ -492,7 +731,7 @@ class TrajectoryGenerator(Node):
         if name not in TRAJECTORY_CLASSES:
             self.get_logger().error(f'Unknown trajectory: {name}')
             return
-        self._traj_type  = name
+        self._traj_type   = name
         self._active_traj = TRAJECTORY_CLASSES[name](self._params)
         self.get_logger().info(f'Switched to trajectory: {name}')
 

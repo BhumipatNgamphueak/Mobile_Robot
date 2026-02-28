@@ -77,9 +77,11 @@ trajectory_generator:
     hover_x:          0.0
     hover_y:          0.0
     traj_speed:       0.5
+    traj_accel:       0.5   # m/s² ramp-up; 0 = instant constant speed
     traj_amplitude:   0.3
     traj_frequency:   0.2
     traj_radius:      0.5
     traj_climb_rate:  0.15
     traj_yaw_rate:    0.0
     traj_duration:    0.0
+    traj_plane:       xz    # 'xz' (altitude change) or 'xy' (horizontal)

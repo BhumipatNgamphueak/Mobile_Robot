@@ -66,7 +66,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Float64MultiArray, Int32
 from actuator_msgs.msg import Actuators
 
 
@@ -129,8 +129,15 @@ class DataCollectorNode(Node):
         self._odom_buf   = []
         self._debug_buf  = []
 
-        self._t0       = None      # first timestamp (seconds)
+        self._t0       = None      # first timestamp (seconds, reset at FLYING start)
         self._shutdown_done = False
+        self._prev_phase = -1
+
+        # Recording gate: for hover-only experiments start immediately;
+        # for trajectory experiments wait for FLYING phase signal so we
+        # don't pollute the dataset with hover stabilisation data.
+        self._recording = (self._traj == 'hover')
+        self._duration_timer = None  # created when FLYING phase begins
 
         # ---- QoS profiles (must match publishers) ----
         reliable_qos = QoSProfile(
@@ -155,14 +162,19 @@ class DataCollectorNode(Node):
             Odometry, '/odom', self._odom_cb, sensor_qos)
         self.create_subscription(
             Float64MultiArray, '/mpc_debug', self._debug_cb, reliable_qos)
+        # Phase signal from trajectory_generator — gates when recording starts/stops
+        self.create_subscription(
+            Int32, '/trajectory_phase', self._phase_cb, reliable_qos)
 
-        # ---- optional duration timer ----
-        if self._duration > 0:
-            self.create_timer(self._duration, self._timer_expired)
+        # ---- duration timer for hover-only experiments (started at launch) ----
+        # For trajectory experiments the timer is started when FLYING begins.
+        if self._recording and self._duration > 0:
+            self._duration_timer = self.create_timer(self._duration, self._timer_expired)
 
         self.get_logger().info(
             f'Data collector ready  traj={self._traj}  '
-            f'duration={"∞" if self._duration <= 0 else f"{self._duration:.0f}s"}')
+            f'duration={"∞" if self._duration <= 0 else f"{self._duration:.0f}s"}  '
+            f'recording={"immediate (hover)" if self._recording else "waiting for FLYING phase"}')
 
     # ------------------------------------------------------------------ #
     # time helpers
@@ -179,6 +191,8 @@ class DataCollectorNode(Node):
     # callbacks
     # ------------------------------------------------------------------ #
     def _state_cb(self, msg: Odometry):
+        if not self._recording:
+            return
         t = _stamp_sec(msg.header.stamp)
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
@@ -201,6 +215,8 @@ class DataCollectorNode(Node):
         })
 
     def _ref_cb(self, msg: Float64MultiArray):
+        if not self._recording:
+            return
         t = self._now_sec()
         d = list(msg.data)
         if len(d) < 12:
@@ -214,6 +230,8 @@ class DataCollectorNode(Node):
         })
 
     def _wrench_cb(self, msg: Float64MultiArray):
+        if not self._recording:
+            return
         t = self._now_sec()
         d = list(msg.data)
         if len(d) < 4:
@@ -225,6 +243,8 @@ class DataCollectorNode(Node):
         })
 
     def _motor_cb(self, msg: Actuators):
+        if not self._recording:
+            return
         t = _stamp_sec(msg.header.stamp)
         v = list(msg.velocity)
         if len(v) < 4:
@@ -235,6 +255,8 @@ class DataCollectorNode(Node):
         })
 
     def _imu_cb(self, msg: Imu):
+        if not self._recording:
+            return
         t = _stamp_sec(msg.header.stamp)
         a = msg.linear_acceleration
         g = msg.angular_velocity
@@ -245,6 +267,8 @@ class DataCollectorNode(Node):
         })
 
     def _odom_cb(self, msg: Odometry):
+        if not self._recording:
+            return
         t = _stamp_sec(msg.header.stamp)
         p = msg.pose.pose.position
         self._odom_buf.append({
@@ -253,6 +277,8 @@ class DataCollectorNode(Node):
         })
 
     def _debug_cb(self, msg: Float64MultiArray):
+        if not self._recording:
+            return
         t = self._now_sec()
         d = list(msg.data)
         if len(d) < 19:
@@ -273,6 +299,39 @@ class DataCollectorNode(Node):
             # Integral error accumulator
             'int_err_x': d[16], 'int_err_y': d[17], 'int_err_z': d[18],
         })
+
+    # ------------------------------------------------------------------ #
+    # trajectory phase callback  (0=PRE_HOVER, 1=FLYING, 2=POST_HOVER)
+    # ------------------------------------------------------------------ #
+    def _phase_cb(self, msg: Int32):
+        phase = msg.data
+        if phase == self._prev_phase:
+            return
+        self._prev_phase = phase
+
+        if phase == 1:  # FLYING — start recording fresh
+            # Discard any pre-hover data and reset timestamp origin
+            self._state_buf.clear()
+            self._ref_buf.clear()
+            self._wrench_buf.clear()
+            self._motor_buf.clear()
+            self._imu_buf.clear()
+            self._odom_buf.clear()
+            self._debug_buf.clear()
+            self._t0 = None
+            self._recording = True
+            self.get_logger().info('Phase FLYING — recording started')
+            # Start optional duration guard (fires if traj_duration=0 / forever)
+            if self._duration > 0 and self._duration_timer is None:
+                self._duration_timer = self.create_timer(
+                    self._duration, self._timer_expired)
+
+        elif phase == 2:  # POST_HOVER — trajectory finished, auto-save
+            if not self._recording:
+                return
+            self._recording = False
+            self.get_logger().info('Phase POST_HOVER — trajectory done, saving data …')
+            self.on_shutdown()
 
     # ------------------------------------------------------------------ #
     # duration timer

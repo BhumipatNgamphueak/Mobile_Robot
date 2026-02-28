@@ -14,23 +14,43 @@ Gazebo /clock topic published via the ros_gz_bridge.
 
 Launch arguments
 ----------------
-  trajectory_type   One of: hover, straight_2d, sine_2d, step_2d,
-                            straight_3d, helix, figure8_3d
+  trajectory_type   One of:
+                      hover
+                      straight_2d | sine_2d | step_2d          (Part 2 — 2D)
+                      lemniscate_2d | circle_2d                 (Part 2 — MPC showcase)
+                      straight_3d | helix | figure8_3d          (Part 3 — 3D)
+                      cone_helix | lissajous_3d                 (Part 3 — MPC showcase)
                     Default: hover
+  traj_plane        '2D plane selection: xz (altitude, default) or xy (horizontal)
   hover_time        Seconds to hold hover before flying trajectory  (default 5.0)
   traj_duration     Seconds to fly trajectory before returning to hover
                     0 = fly forever  (default 0)
+  traj_accel        Acceleration for straight-line ramp [m/s²]; 0 = instant
+                    (default 0.5)
   wind_x/y/z        Wind vector for RViz arrow visualisation  (default 0 0 0)
   collect_data      Enable data collection & analysis node  (default false)
-  collect_duration  Data collection duration in seconds (0 = until Ctrl+C)
+  collect_duration  Data collection duration in seconds (0 = auto on POST_HOVER)
 
 Usage
 -----
-  ros2 launch quad_controller controller.launch.py
-  ros2 launch quad_controller controller.launch.py trajectory_type:=sine_2d
-  ros2 launch quad_controller controller.launch.py trajectory_type:=helix traj_duration:=30.0
-  ros2 launch quad_controller controller.launch.py trajectory_type:=helix wind_y:=-4.0
-  ros2 launch quad_controller controller.launch.py trajectory_type:=helix collect_data:=true collect_duration:=30.0
+  # Part 1 — hover
+  ros2 launch quad_controller controller.launch.py trajectory_type:=hover collect_data:=true collect_duration:=15.0
+
+  # Part 2 — 2D (x-z plane, 10 s each)
+  ros2 launch quad_controller controller.launch.py trajectory_type:=straight_2d traj_duration:=10.0 collect_data:=true
+  ros2 launch quad_controller controller.launch.py trajectory_type:=sine_2d     traj_duration:=10.0 collect_data:=true
+  ros2 launch quad_controller controller.launch.py trajectory_type:=lemniscate_2d traj_duration:=10.0 collect_data:=true
+
+  # Part 2 — x-y plane variant
+  ros2 launch quad_controller controller.launch.py trajectory_type:=lemniscate_2d traj_plane:=xy traj_duration:=10.0 collect_data:=true
+
+  # Part 3 — 3D (10 s each)
+  ros2 launch quad_controller controller.launch.py trajectory_type:=straight_3d  traj_duration:=10.0 collect_data:=true
+  ros2 launch quad_controller controller.launch.py trajectory_type:=helix         traj_duration:=10.0 collect_data:=true
+  ros2 launch quad_controller controller.launch.py trajectory_type:=lissajous_3d  traj_duration:=10.0 collect_data:=true
+
+  # With wind (add to any command above)
+  ros2 launch quad_controller controller.launch.py trajectory_type:=lemniscate_2d traj_duration:=10.0 wind_y:=-4.0 collect_data:=true
 """
 
 import os
@@ -53,8 +73,9 @@ def generate_launch_description():
     traj_type_arg = DeclareLaunchArgument(
         'trajectory_type',
         default_value='hover',
-        description='Trajectory to fly: hover | straight_2d | sine_2d | step_2d '
-                    '| straight_3d | helix | figure8_3d | cone_helix')
+        description='Trajectory: hover | straight_2d | sine_2d | step_2d | '
+                    'lemniscate_2d | circle_2d | straight_3d | helix | '
+                    'figure8_3d | cone_helix | lissajous_3d')
 
     hover_time_arg = DeclareLaunchArgument(
         'hover_time',
@@ -65,6 +86,16 @@ def generate_launch_description():
         'traj_duration',
         default_value='0.0',
         description='Seconds to fly trajectory then return to hover (0 = forever)')
+
+    traj_plane_arg = DeclareLaunchArgument(
+        'traj_plane',
+        default_value='xz',
+        description='2D plane selection: xz (altitude change) or xy (horizontal)')
+
+    traj_accel_arg = DeclareLaunchArgument(
+        'traj_accel',
+        default_value='0.5',
+        description='Acceleration for straight-line ramp [m/s²]; 0 = instant speed')
 
     wind_x_arg = DeclareLaunchArgument(
         'wind_x', default_value='0.0',
@@ -79,6 +110,8 @@ def generate_launch_description():
     traj_type     = LaunchConfiguration('trajectory_type')
     hover_time    = LaunchConfiguration('hover_time')
     traj_duration = LaunchConfiguration('traj_duration')
+    traj_plane    = LaunchConfiguration('traj_plane')
+    traj_accel    = LaunchConfiguration('traj_accel')
     wind_x        = LaunchConfiguration('wind_x')
     wind_y        = LaunchConfiguration('wind_y')
     wind_z        = LaunchConfiguration('wind_z')
@@ -137,6 +170,8 @@ def generate_launch_description():
                 'trajectory_type': traj_type,
                 'hover_time':      hover_time,
                 'traj_duration':   traj_duration,
+                'traj_plane':      traj_plane,
+                'traj_accel':      traj_accel,
             },
         ],
     )
@@ -164,6 +199,8 @@ def generate_launch_description():
         traj_type_arg,
         hover_time_arg,
         traj_duration_arg,
+        traj_plane_arg,
+        traj_accel_arg,
         wind_x_arg,
         wind_y_arg,
         wind_z_arg,
