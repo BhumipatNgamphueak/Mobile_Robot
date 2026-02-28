@@ -1,0 +1,85 @@
+# ============================================================
+# quad_controller -- parameter file
+# ROS2 rcl parser requires strict flat format:
+#   node_name:
+#     ros__parameters:
+#       key: value
+# No YAML anchors or custom tags are supported.
+# ============================================================
+
+ekf_node:
+  ros__parameters:
+    # Physical model  (must match URDF quadrotor_base.xacro)
+    mass:    1.5
+    gravity: 9.81
+    ixx:     0.0347563
+    iyy:     0.07
+    izz:     0.0977
+    # Prediction period [s]  -> 100 Hz
+    dt: 0.01
+    # Process noise (increase to trust model less)
+    q_pos:    0.01
+    q_ang:    0.005
+    q_vel:    0.1
+    q_angvel: 0.05
+    # Measurement noise -- odometry
+    r_odom_pos: 0.02
+    r_odom_ang: 0.02
+    # Measurement noise -- IMU
+    r_imu_acc:  0.3
+    r_imu_gyro: 0.005
+
+mpc_controller:
+  ros__parameters:
+    # Physical model  (must match URDF quadrotor_base.xacro)
+    mass:    1.5
+    gravity: 9.81
+    ixx:     0.0347563
+    iyy:     0.07
+    izz:     0.0977
+    # Motor constants  (must match robot_params.xacro)
+    # kF = motorConstant  (N/(rad/s)^2)
+    # kM = momentConstant (dimensionless ratio, Gazebo convention)
+    # Effective yaw coeff = kF * kM = 5.129e-7 N.m/(rad/s)^2
+    kF:      0.00000854858
+    kM:      0.06
+    # Control period [s]  -> 50 Hz
+    dt: 0.02
+    # Prediction horizon (longer for better tracking)
+    horizon: 20
+    # State cost weights (Q diagonal)
+    q_pos:    20.0
+    q_ang:    10.0
+    q_vel:     5.0
+    q_angvel:  1.0
+    # Input cost weights (R diagonal)
+    r_thrust:  0.01
+    r_moment:  0.1
+    # Rotor saturation  (must match robot_params.xacro omega_max)
+    max_rotor_speed: 1500.0
+    # Integral gains for wind / disturbance rejection
+    # Set to 0.0 to disable integral action (no-wind case)
+    ki_xy:    2.0
+    ki_z:     3.0
+    int_max:  2.0
+    # Wind vector for RViz arrow (match wind.sdf linear_velocity)
+    # Set via launch arg: wind_x, wind_y, wind_z
+    wind_x:   0.0
+    wind_y:   0.0
+    wind_z:   0.0
+
+trajectory_generator:
+  ros__parameters:
+    publish_rate:     50.0
+    trajectory_type:  hover
+    hover_time:       5.0
+    hover_z:          1.0
+    hover_x:          0.0
+    hover_y:          0.0
+    traj_speed:       0.5
+    traj_amplitude:   0.3
+    traj_frequency:   0.2
+    traj_radius:      0.5
+    traj_climb_rate:  0.15
+    traj_yaw_rate:    0.0
+    traj_duration:    0.0
