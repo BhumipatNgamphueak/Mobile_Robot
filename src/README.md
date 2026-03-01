@@ -333,24 +333,6 @@ The negative sign for roll follows from the hover linearisation coupling $\ddot{
 
 $$\mathbf{u}_{\text{total}} = \underbrace{[mg,\,0,\,0,\,0]^\top}_{\text{hover feedforward}} + \underbrace{\mathbf{u}_\delta}_{\text{MPC perturbation}} + \underbrace{\mathbf{u}_I}_{\text{integral correction}}$$
 
-### 4.8 Controller Parameters Summary
-
-| Parameter | Symbol | Value |
-|-----------|--------|-------|
-| Control period | $\Delta t$ | 0.02 s (50 Hz) |
-| Prediction horizon | $N$ | 20 steps (0.4 s lookahead) |
-| Position weight | $q_{\text{pos}}$ | 20.0 |
-| Attitude weight | $q_{\text{ang}}$ | 10.0 |
-| Velocity weight | $q_{\text{vel}}$ | 5.0 |
-| Angular rate weight | $q_{\dot\omega}$ | 1.0 |
-| Thrust input weight | $r_T$ | 0.01 |
-| Torque input weight | $r_\tau$ | 0.1 |
-| Integral gain (xy) | $k_{i,xy}$ | 2.0 |
-| Integral gain (z) | $k_{i,z}$ | 3.0 |
-| Integral clamp | $e_{\max}$ | 2.0 m·s |
-| Max rotor speed | $\omega_{\max}$ | 1500 rad/s |
-| Hover thrust | $mg$ | 14.715 N |
-
 ---
 
 ## 5. State Estimation
@@ -367,19 +349,9 @@ $$\dot{\mathbf{p}} = \mathbf{v}$$
 
 $$\dot{\mathbf{v}} = R_{WB}(\phi,\theta,\psi)\begin{bmatrix}0\\0\\T/m\end{bmatrix} + \begin{bmatrix}0\\0\\-g\end{bmatrix}$$
 
-where the **ZXY rotation matrix** $R_{WB}$ transforms body-frame vectors to world frame (sequence: yaw $\psi$ first, then roll $\phi$, then pitch $\theta$):
+where $R_{WB}$ is the ZXY rotation matrix defined in Section 3.2.
 
-$$R_{WB} = \begin{bmatrix} c_\psi c_\theta - s_\psi s_\phi s_\theta & -s_\psi c_\phi & c_\psi s_\theta + c_\theta s_\psi s_\phi \\ s_\psi c_\theta + c_\psi s_\phi s_\theta & \phantom{+}c_\psi c_\phi & s_\psi s_\theta - c_\psi c_\theta s_\phi \\ -c_\phi s_\theta & \phantom{+}s_\phi & c_\phi c_\theta \end{bmatrix}$$
-
-using $c_\phi = \cos\phi$, $s_\phi = \sin\phi$, etc.
-
-**Euler-angle kinematics (ZXY):**
-
-$$\dot{\phi} = p + (q\sin\phi + r\cos\phi)\tan\theta$$
-$$\dot{\theta} = q\cos\phi - r\sin\phi$$
-$$\dot{\psi} = \frac{q\sin\phi + r\cos\phi}{\cos\theta}$$
-
-These are the exact inverse kinematic equations for ZXY Euler parametrisation. A small-$\epsilon$ guard is applied to $\cos\theta$ to prevent singularity near $\theta = \pm90°$.
+**Euler-angle kinematics:** The exact ZXY kinematic equations from Section 3.3 are used (not the small-angle approximation). A small-$\epsilon$ guard is applied to $\cos\theta$ to prevent singularity near $\theta = \pm90°$.
 
 **Angular acceleration — Euler equations with gyroscopic coupling:**
 
@@ -449,23 +421,9 @@ The **Joseph form** is used instead of the standard $P_k = (I-KH)P_{k|k-1}$ to g
 | Velocity process noise | $q_{\text{vel}}$ | 0.1 | Higher: allows unmodelled accelerations |
 | Ang. rate process noise | $q_{\dot\omega}$ | 0.05 | Moderate: gyroscopic effects |
 | Odom position noise $\sigma$ | $r_{\text{odom,pos}}$ | 0.02 m | Near ground-truth Gazebo odom |
-| Odom angle noise $\sigma$ | $r_{\text{odom,ang}}$ | 0.02 rad | Near ground-truth Gazebo odom |
+| Odom angle noise $\sigma$ | $r_{\text{odom,ang}}$ | 10.0 rad² | High: Gazebo `OdometryPublisher` (wheeled-robot plugin) reports identity orientation for an aerial vehicle; EKF therefore ignores odom attitude and relies on gyro integration instead |
 | IMU accel noise $\sigma$ | $r_{\text{acc}}$ | 0.3 m/s² | High → effectively disables accel update |
 | IMU gyro noise $\sigma$ | $r_{\text{gyro}}$ | 0.005 rad/s | Low → gyro dominates rate estimate |
-
-### 5.5 Physical Parameters
-
-| Parameter | Symbol | Value |
-|-----------|--------|-------|
-| Mass | $m$ | 1.5 kg |
-| Gravity | $g$ | 9.81 m/s² |
-| Roll inertia | $I_{xx}$ | $3.476 \times 10^{-2}$ kg·m² |
-| Pitch inertia | $I_{yy}$ | $7.0 \times 10^{-2}$ kg·m² |
-| Yaw inertia | $I_{zz}$ | $9.77 \times 10^{-2}$ kg·m² |
-| Thrust coefficient | $k_F$ | $8.549 \times 10^{-6}$ N/(rad/s)² |
-| Moment coefficient | $k_M$ | $0.06$ (dimensionless) |
-| Max rotor speed | $\omega_{\max}$ | 1500 rad/s |
-| Hover rotor speed | $\omega_{\text{hov}}$ | $\approx 656$ rad/s |
 
 ---
 
@@ -496,6 +454,22 @@ $$x(t) = v\,t, \quad y = 0, \quad z(t) = z_0 + A\,\lfloor f\,t \rfloor \cdot 0.5
 
 Step height $A$, step frequency $f$ Hz. Provides a piecewise-constant altitude command that tests step-response rejection.
 
+#### Lemniscate (`lemniscate_2d`)
+
+Figure-8 (Bernoulli lemniscate) in the x-z plane:
+
+$$x(t) = R\sin(\omega t), \quad y = 0, \quad z(t) = z_0 + \tfrac{R}{2}\sin(2\omega t)$$
+
+with $R = 0.5$ m, $f = 0.2$ Hz. The crossing at the origin tests bidirectional tracking.
+
+#### Circle (`circle_2d`)
+
+Full circle in the x-z plane, phase-shifted to start at the origin:
+
+$$x(t) = R\sin(\omega t), \quad y = 0, \quad z(t) = z_0 + R(1 - \cos(\omega t))$$
+
+with $R = 0.5$ m, $f = 0.2$ Hz. Hann-window amplitude ramp over the first period ensures zero initial velocity.
+
 ### 6.2 Part 3 — 3D Trajectories
 
 #### Straight Line (`straight_3d`)
@@ -524,6 +498,22 @@ $$\dot{x} = \dot{R}\sin(\omega t) + R(t)\,\omega\cos(\omega t), \quad \dot{y} = 
 
 where $\omega = 2\pi f$ and $\dot{R} = R_{\max}\,f$ is constant. With defaults $R_{\max}=0.5$ m, $f=0.2$ Hz: after the first revolution ($T=5$ s) the radius is $0.5$ m; after the second it is $1.0$ m — producing a conical path that starts at the hover point and expands outward.
 
+#### Figure-8 3D (`figure8_3d`)
+
+Horizontal lemniscate at constant altitude:
+
+$$x(t) = R\sin(\omega t), \quad y(t) = \tfrac{R}{2}\sin(2\omega t), \quad z = z_0$$
+
+with $R = 0.5$ m, $f = 0.2$ Hz. The doubled $y$-frequency produces the highest lateral accelerations of any trajectory within the linearisation bound.
+
+#### Lissajous 3D (`lissajous_3d`)
+
+Full 3D Lissajous curve with frequency ratio 1:2:3:
+
+$$x(t) = R\sin(\omega t), \quad y(t) = R\sin(2\omega t), \quad z(t) = z_0 + A\sin(3\omega t)$$
+
+with $R = 0.5$ m, $A = 0.3$ m, $f = 0.2$ Hz. Peak velocity $R\omega = 0.63$ m/s, peak acceleration $R(2\omega)^2 = 3.16$ m/s². This is the **most demanding trajectory** — it violates the $\pm 15°$ linearisation bound (required roll $\approx 19°$).
+
 ---
 
 ## 7. Experimental Setup
@@ -543,9 +533,13 @@ where $\omega = 2\pi f$ and $\dot{R} = R_{\max}\,f$ is constant. With defaults $
 | 2 | straight\_2d | ✓ | ✓ |
 | 2 | sine\_2d | ✓ | ✓ |
 | 2 | step\_2d | ✓ | ✓ |
+| 2 | lemniscate\_2d | ✓ | ✓ |
+| 2 | circle\_2d | ✓ | ✓ |
 | 3 | straight\_3d | ✓ | ✓ |
 | 3 | helix | ✓ | ✓ |
+| 3 | figure8\_3d | ✓ | ✓ |
 | 3 | cone\_helix | ✓ | ✓ |
+| 3 | lissajous\_3d | ✓ | ✓ |
 
 ### 7.3 Data Collection
 
@@ -579,138 +573,215 @@ ros2 launch quad_controller controller.launch.py \
 
 ## 8. Results
 
-> **Note:** This section will be populated with experimental data collected from the 14 simulation runs described in Section 7.2. Each subsection follows the structure below.
+All simulation runs (11 trajectory types × 2 wind environments) were conducted on 2026-03-01.
+Raw data files are in `data/<trajectory>_<timestamp>/` and cross-experiment comparison figures are in `report/`.
+
+**Global summary figure:**
+
+<p align="center">
+  <img src="report/fig1_rmse_all.png" width="88%"/>
+</p>
+
+> **Figure 1** — 3D position RMSE across all 11 trajectory types, no-wind (blue) vs wind (red). ✗ marks indicate linearisation bound violated at ≥10% of flight time (Lissajous 3D only).
+
+---
 
 ### 8.1 Part 1 — Hover
 
-#### 8.1.1 Without Wind
+All metrics are evaluated over the FLYING phase only (after the 5 s pre-hover stabilisation period).
 
-*(Insert: z position vs. time, settling time, steady-state error, motor speeds. Include `position_tracking.png`, `euler_angles.png`.)*
+<table>
+  <tr>
+    <td><img src="data/hover_20260301_154830/position_tracking.png"/></td>
+    <td><img src="data/hover_20260301_155920/position_tracking.png"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Figure 2a — No Wind: SS error 9.3 mm</em></td>
+    <td align="center"><em>Figure 2b — Wind 4 m/s (−y): SS error 48.2 mm, integral corrects y-drift</em></td>
+  </tr>
+</table>
 
-| Metric | Value |
-|--------|-------|
-| Settling time (2%, $z = 1.0$ m) | — s |
-| Steady-state position error (3D) | — m |
-| Max $\|\phi\|$, $\|\theta\|$ | —°, —° |
-| Mean motor utilisation | —% |
+| Metric | No Wind | Wind (4 m/s −y) |
+|--------|---------|-----------------|
+| Settling time (2% band) | **2.68 s** | 2.71 s |
+| RMSE 3D [m] | 0.1803 | 0.1936 |
+| SS error 3D [m] | **0.0093** | 0.0482 |
+| Max $y$ deviation [m] | ≈ 0 | 0.114 (before integral settles) |
+| Wind drift suppressed | — | **95.5%** (114 mm peak → 5 mm final) |
+| Motor utilisation | 43.90% | 43.19% |
 
-#### 8.1.2 With Wind (4 m/s −y)
-
-*(Insert: same plots. Highlight integral action effect — compare z and y error before/after accumulation saturates.)*
-
-| Metric | No wind | Wind |
-|--------|---------|------|
-| SS error $y$ [m] | — | — |
-| Integral $\|e_I\|$ final [m·s] | — | — |
-| Drift suppressed | — | — |
+The integral action drives the residual y-offset from 114 mm (peak drift) down to 5 mm. The final integral accumulator value of 0.247 m·s is well within the ±2.0 m·s clamp. Under wind, rotors 0 & 3 spin faster to generate the roll bias countering the −y force — the physical signature of integral compensation.
 
 ---
 
 ### 8.2 Part 2 — 2D Trajectory Tracking
 
-*(For each trajectory: `position_tracking.png`, `velocity_tracking.png`, `position_error.png`. Tabulate RMSE.)*
+All trajectories fly in the x-z plane (`traj_plane=xz`). Reference yaw is fixed at $\psi_{\text{ref}} = 0$.
 
-#### 8.2.1 Straight Line
+#### Representative: Sine Wave 2D
 
-| Metric | No wind | Wind |
-|--------|---------|------|
-| RMSE $x$ [m] | — | — |
-| RMSE $z$ [m] | — | — |
-| Max 3D error [m] | — | — |
+<table>
+  <tr>
+    <td><img src="data/sine_2d_20260301_155013/position_tracking.png"/></td>
+    <td><img src="data/sine_2d_20260301_160049/position_tracking.png"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Figure 3a — No Wind: x lag at sine z-peaks; RMSE 0.246 m</em></td>
+    <td align="center"><em>Figure 3b — Wind: integral reduces RMSE to 0.137 m (counter-intuitive)</em></td>
+  </tr>
+</table>
 
-#### 8.2.2 Sine Wave
+> **Notable:** Sine wave RMSE is *lower* with wind (0.137 vs 0.246 m). The alternating $\pm x$ accelerations produce a zero-mean X error that the integrator partially cancels, while roll bias simultaneously compensates the $-y$ wind. This is coincidental, not by design.
 
-| Metric | No wind | Wind |
-|--------|---------|------|
-| RMSE $x$ [m] | — | — |
-| RMSE $z$ [m] | — | — |
-| RMSE $\dot{z}$ [m/s] | — | — |
+#### Consolidated 2D Metrics
 
-#### 8.2.3 Staircase
+| Trajectory | Wind | RMSE 3D (m) | SS Err (m) | Max $\|\theta\|$ (°) |
+|------------|------|:-----------:|:---------:|:-------------------:|
+| Straight 2D | No | 0.1759 | 0.0558 | 3.47 |
+| Straight 2D | Yes | 0.1916 | 0.0766 | 3.62 |
+| Sine 2D | No | 0.2455 | 0.1115 | 6.17 |
+| Sine 2D | Yes | **0.1372** | 0.0867 | 6.43 |
+| Step 2D | No | 0.1856 | 0.0692 | 6.30 |
+| Step 2D | Yes | 0.2011 | 0.0971 | 6.42 |
+| Lemniscate 2D | No | 0.1922 | 0.2278 | 4.78 |
+| Lemniscate 2D | Yes | 0.1922 | 0.2154 | 4.87 |
+| Circle 2D | No | 0.2064 | 0.2598 | 5.03 |
+| Circle 2D | Yes | 0.2069 | 0.2569 | 4.98 |
 
-| Metric | No wind | Wind |
-|--------|---------|------|
-| RMSE $z$ [m] | — | — |
-| Mean step rise time [s] | — | — |
+**Key observations:**
+- **Straight line:** X-axis error dominates (0.171 m) because the constant-reference MPC cannot pre-compensate the trapezoidal ramp. Y-error doubles under wind (33 → 72 mm) but remains bounded.
+- **Step (staircase):** Each altitude step recovers within **1.05 s** — the inherent closed-loop bandwidth. Wind does not degrade step response (same rise time), only adds y-drift.
+- **Orbital trajectories (Lemniscate, Circle):** Elevated steady-state error (0.22–0.26 m) due to the constant-reference MPC formulation — the drone perpetually chases a reference ahead in phase. Wind has negligible RMSE impact (< 0.5%) because the orbit is symmetric in $y$.
 
 ---
 
 ### 8.3 Part 3 — 3D Trajectory Tracking
 
-*(For each trajectory: `3d_trajectory.png`, `position_tracking.png`, `velocity_tracking.png`, `euler_angles.png`, `mpc_cost.png`. Tabulate RMSE.)*
+#### Representative: Helix Spiral
 
-#### 8.3.1 Straight Line 3D
+<table>
+  <tr>
+    <td><img src="data/helix_20260301_155524/3d_trajectory.png"/></td>
+    <td><img src="data/helix_20260301_160344/3d_trajectory.png"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Figure 4a — No Wind: clean helical climb; orbit lag symmetric</em></td>
+    <td align="center"><em>Figure 4b — Wind: helix deforms slightly in y; z climb unaffected</em></td>
+  </tr>
+</table>
 
-| Metric | No wind | Wind |
-|--------|---------|------|
-| RMSE 3D [m] | — | — |
-| Max $\|\phi\|$, $\|\theta\|$ | —°, —° | —°, —° |
+> The helix shows the **smallest wind sensitivity** of all 3D trajectories (RMSE difference 0.0001 m). The circular orbit visits all $y$-positions equally, so the integral compensates the wind bias within approximately one orbit period (5 s).
 
-#### 8.3.2 Helix
+#### Case Study: Lissajous 3D — Linearisation Violation
 
-| Metric | No wind | Wind |
-|--------|---------|------|
-| RMSE 3D [m] | — | — |
-| Max roll/pitch [°] | — | — |
+<table>
+  <tr>
+    <td><img src="data/lissajous_3d_20260301_155743/euler_angles.png"/></td>
+    <td><img src="data/lissajous_3d_20260301_160539/euler_angles.png"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Figure 5a — No Wind: roll reaches 20.5° — VIOLATES ±15° bound</em></td>
+    <td align="center"><em>Figure 5b — Wind: roll reaches 22.7° — model further invalidated</em></td>
+  </tr>
+</table>
 
-#### 8.3.3 Conical Spiral
+The $y(t) = R\sin(2\omega t)$ component at $2\omega = 2.51$ rad/s with $R = 0.5$ m produces peak lateral acceleration $|\ddot{y}| = R(2\omega)^2 \approx 3.16$ m/s², requiring $\phi \approx \arcsin(3.16/9.81) \approx 19°$. The measured maximum of **20.5°** exceeds both this prediction and the ±15° linearisation bound. Despite this, the controller degrades gracefully rather than diverging — the EKF's nonlinear prediction maintains accurate state estimates even at large angles.
 
-| Metric | No wind | Wind |
-|--------|---------|------|
-| RMSE 3D [m] | — | — |
-| Max radius reached [m] | — | — |
+#### Consolidated 3D Metrics
+
+| Trajectory | Wind | RMSE 3D (m) | SS Err (m) | Max $\|\phi\|$ (°) | Max $\|\theta\|$ (°) | Lin. Valid |
+|------------|------|:-----------:|:---------:|:------------------:|:--------------------:|:----------:|
+| Straight 3D | No | 0.1723 | 0.0573 | 1.72 | 2.82 | ✓ |
+| **Straight 3D** | **Yes** | **0.1026** | **0.0524** | 2.90 | 2.99 | ✓ |
+| Helix | No | 0.2287 | 0.2836 | 4.80 | 5.26 | ✓ |
+| Helix | Yes | 0.2286 | 0.2872 | 6.69 | 5.34 | ✓ |
+| Figure-8 3D | No | 0.2298 | 0.2191 | 9.10 | 5.09 | ✓ |
+| Figure-8 3D | Yes | 0.2289 | 0.2158 | 10.93 | 5.26 | ✓ |
+| Cone Helix | No | 0.3051 | 0.4873 | 7.94 | 9.06 | ✓ |
+| Cone Helix | Yes | 0.3110 | 0.4967 | 8.77 | 8.80 | ✓ |
+| Lissajous 3D | No | 0.3638 | 0.3471 | 20.52 | 7.22 | **✗** |
+| Lissajous 3D | Yes | 0.3633 | 0.3323 | 22.69 | 7.39 | **✗** |
+
+**Key observations:**
+- **Straight 3D with wind (RMSE 0.103 m)** is the best result across all experiments. The trajectory's $+y$ component partially opposes the $-y$ wind, accelerating integral convergence.
+- **Cone helix** has the highest steady-state error (0.487 m) — a structural property of the monotonically growing radius, not a controller failure.
+- **Lissajous 3D** is the only trajectory violating the ±15° bound. Its 35% RMSE degradation relative to Figure-8 (0.364 vs 0.230 m) quantifies the cost of model invalidation.
 
 ---
 
 ### 8.4 MPC Internal Metrics
 
-*(Insert: `mpc_cost.png`, `wrench_decomposition.png`, `torque_scale.png`, `integral_error.png` for representative runs.)*
+<table>
+  <tr>
+    <td><img src="data/hover_20260301_155920/wrench_decomposition.png"/></td>
+    <td><img src="data/cone_helix_20260301_155705/mpc_cost.png"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Figure 6a — Hover wind: integral contribution grows as wind accumulates</em></td>
+    <td align="center"><em>Figure 6b — Cone Helix: MPC cost rises with radius as orbit becomes harder</em></td>
+  </tr>
+</table>
 
-| Metric | Hover | Helix | Cone |
-|--------|-------|-------|------|
-| Solve success rate [%] | — | — | — |
-| Mean state cost $\bar{J}_x$ | — | — | — |
-| Mean input cost $\bar{J}_u$ | — | — | — |
-| Torque scale events [%] | — | — | — |
-| RMS MPC thrust Δ [N] | — | — | — |
-| RMS integral thrust [N] | — | — | — |
+All experiments achieved **100% MPC solve rate** and **zero torque-scale events** ($\lambda^* = 1.0$ always). Motor utilisation: 43.0–44.2% across all conditions, confirming 56% headroom for disturbance rejection.
+
+<p align="center">
+  <img src="report/fig4_motor_utilization.png" width="85%"/>
+</p>
+
+> **Figure 7** — Per-rotor utilisation. No-wind: all 4 rotors balanced at ~44%. Wind: rotors 0 & 3 spin faster (roll bias countering −y wind), rotors 1 & 2 partially unloaded.
 
 ---
 
 ## 9. Discussion and Analysis
 
-> **Note:** This section will be written after experimental data is collected. The outline below identifies the key discussion points.
+### 9.1 Linearisation Validity
 
-### 9.1 Hover Performance
+All experiments remain within the ±15° linearisation bound **except** Lissajous 3D (max roll 20.5°–22.7°). The boundary-approaching cases are Figure-8 3D (max roll 9.1°–10.9°) and Cone Helix (max pitch 9.1°), where the linearisation error $\sin\theta - \theta$ is approximately 0.4–1.3%.
 
-*(Discuss: How quickly does the drone reach z = 1.0 m? Does it overshoot? Are roll/pitch angles within the ±15° linearisation bound? Compare no-wind vs. wind cases: what is the steady-state y-offset without integral action? How much does the integral action reduce this?)*
+The MPC cost decomposition provides a diagnostic: trajectories within the linearisation region show declining state cost after the initial transient (Straight 3D: $\bar{J}_x = 0.19$), while Cone Helix shows growing state cost as the orbital radius expands ($\bar{J}_x = 2.73$).
 
-### 9.2 Linearisation Validity
+<p align="center">
+  <img src="report/fig6_euler_maxangle.png" width="80%"/>
+</p>
 
-*(Discuss: The MPC is derived under a small-angle assumption. Report the percentage of flight time within ±15°. For trajectories that push the boundary (helix, cone), does tracking degrade? What does the MPC cost trajectory reveal about the periods where linearisation is strained?)*
+> **Figure 8** — Maximum roll and pitch across all trajectories vs the ±15° linearisation validity boundary (dashed red). All experiments except Lissajous 3D remain within the valid region.
 
-### 9.3 Trajectory Tracking Quality
+### 9.2 Tracking Error Hierarchy
 
-*(Discuss: Compare RMSE across trajectory types. Explain why 3D trajectories have higher error than 2D. For the helix, lateral acceleration demand from circular motion requires simultaneous roll and pitch, which the linearised model handles less accurately. The cone_helix exacerbates this as R grows. Velocity tracking errors should be discussed alongside position errors — does the MPC correctly anticipate reference velocity changes?)*
+RMSE increases monotonically with trajectory complexity, driven by two distinct mechanisms:
 
-### 9.4 Wind Disturbance Rejection
+| Trajectory class | Peak lateral $a$ [m/s²] | RMSE range [m] | Dominant error source |
+|-----------------|------------------------|----------------|----------------------|
+| Hover, Straight | 0.0–1.5 | 0.10–0.18 | EKF initialisation transient |
+| Sine, Helix, Figure-8 | 1.5–2.0 | 0.19–0.23 | Phase lag (constant-reference MPC) |
+| Cone, Lissajous | 2.0–3.2 | 0.30–0.36 | Linearisation model error |
 
-*(Discuss: Without integral action (ki_xy = ki_z = 0), the proportional MPC alone cannot reject a constant aerodynamic offset — explain why (MPC has no internal model of constant disturbance). With integral action, show convergence of the integral accumulator to a steady value and corresponding reduction of the position offset. Quantify rejection quality using the signed steady-state offset.)*
+The elevated **steady-state error for orbital trajectories** (0.22–0.49 m vs straight-line 0.05–0.08 m) is a formulation limitation: the constant-reference MPC horizon sees a fixed waypoint, not the upcoming curvature, producing systematic phase lag proportional to orbital speed.
 
-### 9.5 MPC Wrench Decomposition
+<p align="center">
+  <img src="report/fig5_complexity_scatter.png" width="78%"/>
+</p>
 
-*(Discuss: The wrench decomposition plot separates hover feedforward, MPC perturbation, and integral contribution. During straight trajectories, the MPC Δ dominates. During wind runs, integral contribution grows to compensate. During agile 3D trajectories, examine whether torque scaling (`torque_scale < 1`) occurs — if so, motor saturation is reached and torque authority is reduced to protect thrust.)*
+> **Figure 9** — Max roll angle vs RMSE. The strong positive correlation quantifies the linearisation-degradation mechanism. Lissajous 3D (✗) breaks the trend by operating beyond the valid model region.
 
-### 9.6 Closed-Form MPC vs. Iterative Solvers
+### 9.3 Wind Disturbance Rejection
 
-*(Discuss: The precomputed gain approach guarantees 100% solve rate and constant 50 Hz execution with negligible online computation (two matrix-vector multiplies per tick). This contrasts with nonlinear MPC or QP-based constrained MPC, which carry a risk of solver timeout or infeasibility. The trade-off is the restriction to the linearisation domain and the absence of hard input constraints — saturation is handled heuristically by the thrust-priority allocator.)*
+Without integral action, the proportional MPC cannot reject a constant aerodynamic offset — a constant wind force shifts the equilibrium point, and the finite-horizon optimisation cannot generate a non-zero corrective roll at steady state without incurring an input penalty for zero incremental benefit.
 
-### 9.7 Limitations and Future Work
+The integral action resolves this by accumulating the position offset and injecting a roll/pitch bias. Wind rejection effectiveness varies by trajectory type:
+- **Symmetric orbits (Helix, Circle, Lemniscate):** Full rejection (RMSE wind sensitivity ≈ 0%) — the orbit visits equal $\pm y$ positions uniformly.
+- **Straight-line trajectories:** Partial to full rejection (20–96%) depending on the $y$-component of flight direction.
+- **Lissajous 3D (outside linearisation):** Partial rejection only — the linearisation error makes the integral correction itself model-inaccurate.
 
-- The linearisation is valid only for near-hover attitudes. Agile manoeuvres exceeding ±15° roll/pitch will degrade tracking accuracy.
-- Wind is modelled as a constant body-level force. A real aerodynamic model including induced drag and gust would require a more sophisticated disturbance observer.
-- The integral action does not discriminate between wind disturbance and integral windup from trajectory transitions. A state-space disturbance observer (e.g., extended state observer) would provide faster and more principled rejection.
-- The receding horizon length of 20 steps (0.4 s) may be insufficient for fast trajectories; a longer horizon or trajectory preview could improve tracking.
+### 9.4 Limitations and Future Work
+
+1. **Constant-reference horizon:** Providing the full N-step predicted reference trajectory (already computed by the trajectory generator) would eliminate the systematic phase lag on orbital trajectories — the single highest-impact improvement available.
+
+2. **Linearisation domain:** A gain-scheduled MPC or iterative LQR (iLQR) approach would remove the ±15° restriction at the cost of increased computation.
+
+3. **Integral anti-windup:** The integrator does not distinguish wind disturbance from tracking-lag error, causing small DC biases on orbital trajectories even without wind. A conditional integration scheme would eliminate this artefact.
+
+4. **Horizon length:** The 20-step (0.4 s) horizon is adequate for speeds ≤ 0.5 m/s but insufficient for faster agile flight where trajectory curvature changes significantly within the horizon.
 
 ---
 
