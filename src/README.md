@@ -170,7 +170,9 @@ Rotor positions and directions (from `quadrotor_base.xacro`):
 
 The wrench is related to squared rotor speeds by:
 
-$$\begin{bmatrix} T \\ \tau_\phi \\ \tau_\theta \\ \tau_\psi \end{bmatrix} = \underbrace{\begin{bmatrix} k_F & k_F & k_F & k_F \\ k_F r_{y,0} & k_F r_{y,1} & k_F r_{y,2} & k_F r_{y,3} \\ -k_F r_{x,0} & -k_F r_{x,1} & -k_F r_{x,2} & -k_F r_{x,3} \\ -d_0\kappa & -d_1\kappa & -d_2\kappa & -d_3\kappa \end{bmatrix}}_{\mathbf{A}} \begin{bmatrix} \omega_0^2 \\ \omega_1^2 \\ \omega_2^2 \\ \omega_3^2 \end{bmatrix}$$
+$$
+\begin{bmatrix} T \\\\ \tau_\phi \\\\ \tau_\theta \\\\ \tau_\psi \end{bmatrix} = \underbrace{\begin{bmatrix} k_F & k_F & k_F & k_F \\\\ k_F r_{y,0} & k_F r_{y,1} & k_F r_{y,2} & k_F r_{y,3} \\\\ -k_F r_{x,0} & -k_F r_{x,1} & -k_F r_{x,2} & -k_F r_{x,3} \\\\ -d_0\kappa & -d_1\kappa & -d_2\kappa & -d_3\kappa \end{bmatrix}}_{\mathbf{A}} \begin{bmatrix} \omega_0^2 \\\\ \omega_1^2 \\\\ \omega_2^2 \\\\ \omega_3^2 \end{bmatrix}
+$$
 
 Motor speeds are recovered by $\boldsymbol{\omega}^2 = \mathbf{A}^{-1} \mathbf{u}$, where $\mathbf{u} = [T, \tau_\phi, \tau_\theta, \tau_\psi]^\top$.
 
@@ -178,7 +180,9 @@ Motor speeds are recovered by $\boldsymbol{\omega}^2 = \mathbf{A}^{-1} \mathbf{u
 
 At the hover equilibrium $\mathbf{x}_0 = \mathbf{0}_{12}$, $\mathbf{u}_0 = [mg, 0, 0, 0]^\top$, and under the small-angle assumption ($|\phi|, |\theta| \ll 1$), the nonlinear dynamics reduce to the continuous LTI system $\dot{\mathbf{x}} = A_c\,\mathbf{x} + B_c\,\mathbf{u}$:
 
-$$A_c = \begin{bmatrix} \mathbf{0}_3 & \mathbf{0}_3 & I_3 & \mathbf{0}_3 \\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & I_3 \\ \mathbf{0}_{3\times3}^* & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \end{bmatrix}, \quad B_c = \begin{bmatrix} \mathbf{0}_{6\times4} \\ B_{\text{acc}} \end{bmatrix}$$
+$$
+A_c = \begin{bmatrix} \mathbf{0}_3 & \mathbf{0}_3 & I_3 & \mathbf{0}_3 \\\\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & I_3 \\\\ \mathbf{0}_{3\times3}^* & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \\\\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \end{bmatrix}, \quad B_c = \begin{bmatrix} \mathbf{0}_{6\times4} \\\\ B_{\text{acc}} \end{bmatrix}
+$$
 
 The non-zero coupling entries in $A_c$ are:
 
@@ -230,11 +234,15 @@ $$\mathbf{X} = \Phi\,\mathbf{x}_0 + \Gamma\,\mathbf{U} \qquad \mathbf{X} = [\mat
 
 The **free-response matrix** $\Phi$ stacks powers of $A_d$ beginning at $A_d^1$ (block row $i$ contains $A_d^{i+1}$, for $i = 0,\ldots,N-1$):
 
-$$\Phi = \begin{bmatrix} A_d \\ A_d^2 \\ \vdots \\ A_d^N \end{bmatrix} \in \mathbb{R}^{Nn \times n}$$
+$$
+\Phi = \begin{bmatrix} A_d \\\\ A_d^2 \\\\ \vdots \\\\ A_d^N \end{bmatrix} \in \mathbb{R}^{Nn \times n}
+$$
 
 The **forced-response matrix** $\Gamma$ is lower-block-triangular. At zero-indexed block position $(i,j)$ with $i \geq j$:
 
-$$\Gamma_{ij} = A_d^{i-j}\,B_d, \qquad \Gamma = \begin{bmatrix} B_d & 0 & \cdots & 0 \\ A_d B_d & B_d & \cdots & 0 \\ A_d^2 B_d & A_d B_d & \cdots & 0 \\ \vdots & \vdots & \ddots & \vdots \\ A_d^{N-1}B_d & A_d^{N-2}B_d & \cdots & B_d \end{bmatrix} \in \mathbb{R}^{Nn \times Nm}$$
+$$
+\Gamma_{ij} = A_d^{i-j}\,B_d, \qquad \Gamma = \begin{bmatrix} B_d & 0 & \cdots & 0 \\\\ A_d B_d & B_d & \cdots & 0 \\\\ A_d^2 B_d & A_d B_d & \cdots & 0 \\\\ \vdots & \vdots & \ddots & \vdots \\\\ A_d^{N-1}B_d & A_d^{N-2}B_d & \cdots & B_d \end{bmatrix} \in \mathbb{R}^{Nn \times Nm}
+$$
 
 The lower-triangular structure captures causality: input at step $j$ only influences states at steps $j, j+1, \ldots, N-1$. Both $\Phi$ and $\Gamma$ are computed once at node startup using the ZOH-discretised matrices from `scipy.signal.cont2discrete`. The block cost matrices are $\bar{Q} = I_N \otimes Q$ and $\bar{R} = I_N \otimes R$.
 
@@ -267,7 +275,9 @@ Each 50 Hz control tick executes five sequential steps:
 **Step 1 — Yaw frame rotation.**
 The hover-point linearisation couples pitch to world $x$-acceleration and roll to world $y$-acceleration, valid only when body and world frames are aligned ($\psi = 0$). Both state and reference are rotated into the drone's heading frame to restore this alignment at arbitrary yaw:
 
-$$\begin{bmatrix} x^h \\ y^h \end{bmatrix} = \underbrace{\begin{bmatrix} \cos\psi & \sin\psi \\ -\sin\psi & \cos\psi \end{bmatrix}}_{R_z(-\psi)} \begin{bmatrix} x \\ y \end{bmatrix}, \qquad \begin{bmatrix} \dot{x}^h \\ \dot{y}^h \end{bmatrix} = R_z(-\psi) \begin{bmatrix} \dot{x} \\ \dot{y} \end{bmatrix}$$
+$$
+\begin{bmatrix} x^h \\\\ y^h \end{bmatrix} = \underbrace{\begin{bmatrix} \cos\psi & \sin\psi \\\\ -\sin\psi & \cos\psi \end{bmatrix}}_{R_z(-\psi)} \begin{bmatrix} x \\\\ y \end{bmatrix}, \qquad \begin{bmatrix} \dot{x}^h \\\\ \dot{y}^h \end{bmatrix} = R_z(-\psi) \begin{bmatrix} \dot{x} \\\\ \dot{y} \end{bmatrix}
+$$
 
 The yaw state is zeroed ($\psi^h = 0$) and the yaw reference is set to the yaw error $\Delta\psi_{\text{ref}}$ (wrapped to $[-\pi,\pi]$). All other state components (altitude $z$, attitude $\phi,\theta$, angular rates $p,q,r$) are unchanged.
 
@@ -279,7 +289,9 @@ $$\mathbf{u}_\delta = K_r\,\mathbf{X}_{\text{ref}} + K_x\,\mathbf{x}_0^h$$
 **Step 3 — Hover feedforward.**
 The gravity feedforward restores the true wrench:
 
-$$\mathbf{u}_{\text{total}} = \mathbf{u}_\delta + \begin{bmatrix}mg \\ 0 \\ 0 \\ 0\end{bmatrix}$$
+$$
+\mathbf{u}_{\text{total}} = \mathbf{u}_\delta + \begin{bmatrix}mg \\\\ 0 \\\\ 0 \\\\ 0\end{bmatrix}
+$$
 
 **Step 4 — Integral action** (if $z > 0.15$ m):
 The wind-rejection integrator is updated and its correction added (see Section 4.7):
@@ -347,7 +359,9 @@ At each 100 Hz prediction tick, the EKF propagates the full nonlinear equations 
 
 $$\dot{\mathbf{p}} = \mathbf{v}$$
 
-$$\dot{\mathbf{v}} = R_{WB}(\phi,\theta,\psi)\begin{bmatrix}0\\0\\T/m\end{bmatrix} + \begin{bmatrix}0\\0\\-g\end{bmatrix}$$
+$$
+\dot{\mathbf{v}} = R_{WB}(\phi,\theta,\psi)\begin{bmatrix}0\\\\0\\\\T/m\end{bmatrix} + \begin{bmatrix}0\\\\0\\\\-g\end{bmatrix}
+$$
 
 where $R_{WB}$ is the ZXY rotation matrix defined in Section 3.2.
 
@@ -367,7 +381,9 @@ The gyroscopic cross-product terms $(qr,\, pr,\, pq)$ couple the three angular r
 
 Rather than computing the full nonlinear Jacobian $\partial f/\partial\mathbf{x}$ (which involves partial derivatives of $R_{WB}$ and gyroscopic terms), the EKF uses a **simplified Jacobian** retaining only the dominant linear couplings:
 
-$$F = \frac{\partial f}{\partial \mathbf{x}}\bigg|_{\text{simplified}} = \begin{bmatrix} 0_3 & 0_3 & I_3 & 0_3 \\ 0_3 & 0_3 & 0_3 & I_3 \\ 0_3 & F_g & 0_3 & 0_3 \\ 0_3 & 0_3 & 0_3 & 0_3 \end{bmatrix}$$
+$$
+F = \frac{\partial f}{\partial \mathbf{x}}\bigg|_{\text{simplified}} = \begin{bmatrix} 0_3 & 0_3 & I_3 & 0_3 \\\\ 0_3 & 0_3 & 0_3 & I_3 \\\\ 0_3 & F_g & 0_3 & 0_3 \\\\ 0_3 & 0_3 & 0_3 & 0_3 \end{bmatrix}
+$$
 
 where $F_g$ captures the linearised gravity-attitude coupling evaluated at the current angles:
 
@@ -385,7 +401,9 @@ Two sensors trigger independent asynchronous EKF updates:
 
 **Odometry** (`/odom`, Gazebo ground-truth pose):
 
-$$\mathbf{z}_{\text{odom}} = [x,\, y,\, z,\, \phi,\, \theta,\, \psi]^\top, \qquad H_{\text{odom}} = \begin{bmatrix} I_6 & 0_{6\times 6} \end{bmatrix}$$
+$$
+\mathbf{z}_{\text{odom}} = [x,\, y,\, z,\, \phi,\, \theta,\, \psi]^\top, \qquad H_{\text{odom}} = \begin{bmatrix} I_6 & 0_{6\times 6} \end{bmatrix}
+$$
 
 This is a linear measurement model that directly observes all 6 pose states. Angle innovations are wrapped to $[-\pi,\pi]$ to handle wrap-around.
 
@@ -393,7 +411,9 @@ This is a linear measurement model that directly observes all 6 pose states. Ang
 
 The accelerometer in a multirotor measures the **specific force in the body frame** — the net non-gravitational force per unit mass. Near hover, this is dominated by the rotor thrust:
 
-$$\mathbf{a}_{\text{pred}} = \begin{bmatrix}0 \\ 0 \\ T/m\end{bmatrix} \quad (\text{body frame, exact for any attitude})$$
+$$
+\mathbf{a}_{\text{pred}} = \begin{bmatrix}0 \\\\ 0 \\\\ T/m\end{bmatrix} \quad (\text{body frame, exact for any attitude})
+$$
 
 Because this prediction depends on the control input $T$ rather than any state, the accelerometer Jacobian rows are zero: $H_{\text{imu}}[0:3,\,:] = 0$. The Kalman gain for those rows vanishes and the accelerometer innovation does not update the state. Only the **gyroscope rows** have non-zero Jacobian entries:
 
