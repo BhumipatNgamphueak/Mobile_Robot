@@ -23,8 +23,13 @@ ekf_node:
     q_vel:    0.1
     q_angvel: 0.05
     # Measurement noise -- odometry
+    # r_odom_ang is set high because the Gazebo OdometryPublisher plugin
+    # (designed for wheeled robots) may publish identity orientation for
+    # aerial vehicles. The EKF attitude is instead driven by the prediction
+    # step which integrates gyroscope body-rates (p,q,r) — the correct
+    # source for quadrotor attitude estimation.
     r_odom_pos: 0.02
-    r_odom_ang: 0.02
+    r_odom_ang: 10.0
     # Measurement noise -- IMU
     r_imu_acc:  0.3
     r_imu_gyro: 0.005

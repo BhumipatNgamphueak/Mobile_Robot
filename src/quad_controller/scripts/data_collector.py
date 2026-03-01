@@ -63,6 +63,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
+from rclpy.clock import Clock, ClockType
 
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu
@@ -166,10 +167,15 @@ class DataCollectorNode(Node):
         self.create_subscription(
             Int32, '/trajectory_phase', self._phase_cb, reliable_qos)
 
+        # Wall clock for duration timer — avoids premature firing when
+        # use_sim_time=True but Gazebo hasn't published /clock yet.
+        self._wall_clock = Clock(clock_type=ClockType.STEADY_TIME)
+
         # ---- duration timer for hover-only experiments (started at launch) ----
         # For trajectory experiments the timer is started when FLYING begins.
         if self._recording and self._duration > 0:
-            self._duration_timer = self.create_timer(self._duration, self._timer_expired)
+            self._duration_timer = self.create_timer(
+                self._duration, self._timer_expired, clock=self._wall_clock)
 
         self.get_logger().info(
             f'Data collector ready  traj={self._traj}  '
@@ -324,20 +330,28 @@ class DataCollectorNode(Node):
             # Start optional duration guard (fires if traj_duration=0 / forever)
             if self._duration > 0 and self._duration_timer is None:
                 self._duration_timer = self.create_timer(
-                    self._duration, self._timer_expired)
+                    self._duration, self._timer_expired, clock=self._wall_clock)
 
         elif phase == 2:  # POST_HOVER — trajectory finished, auto-save
             if not self._recording:
                 return
             self._recording = False
-            self.get_logger().info('Phase POST_HOVER — trajectory done, saving data …')
+            if self._duration_timer is not None:
+                self._duration_timer.cancel()
+                self._duration_timer = None
+            self.get_logger().info(
+                f'=== Trajectory [{self._traj}] ENDED — saving data … ===')
             self.on_shutdown()
 
     # ------------------------------------------------------------------ #
     # duration timer
     # ------------------------------------------------------------------ #
     def _timer_expired(self):
-        self.get_logger().info('Collection duration reached — processing …')
+        if self._duration_timer is not None:
+            self._duration_timer.cancel()
+            self._duration_timer = None
+        self.get_logger().info(
+            f'=== Trajectory [{self._traj}] ENDED (duration reached) — saving data … ===')
         self.on_shutdown()
         raise SystemExit
 
@@ -376,6 +390,8 @@ class DataCollectorNode(Node):
         self._save_csv(state_df, ctrl_df, metrics, out_dir)
         self._generate_plots(state_df, ctrl_df, metrics, out_dir)
         self._print_summary(metrics, out_dir)
+        self.get_logger().info(
+            f'=== Data collection COMPLETE  →  {out_dir}/ ===')
 
     # ------------------------------------------------------------------ #
     # DataFrame construction & alignment
@@ -640,10 +656,17 @@ class DataCollectorNode(Node):
     def _plot_3d(self, sdf, traj, out):
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
-        ax.plot(sdf['x'], sdf['y'], sdf['z'],
-                'b-', lw=1.2, label='Actual')
-        ax.plot(sdf['ref_x'], sdf['ref_y'], sdf['ref_z'],
-                'r--', lw=1.2, label='Reference')
+        # Plot reference FIRST so actual is rendered on top in the depth sort.
+        # Add markers every ~30 samples so the reference is still visible even
+        # when both paths nearly overlap (matplotlib 3D painter's algorithm
+        # makes dashed lines invisible behind solid ones at the same depth).
+        n = len(sdf)
+        mark_step = max(1, n // 30)
+        ax.plot(sdf['ref_x'].to_numpy(), sdf['ref_y'].to_numpy(), sdf['ref_z'].to_numpy(),
+                'r--', lw=1.8, alpha=0.9, label='Reference',
+                marker='o', markevery=mark_step, markersize=3)
+        ax.plot(sdf['x'].to_numpy(), sdf['y'].to_numpy(), sdf['z'].to_numpy(),
+                'b-', lw=1.2, alpha=0.85, label='Actual')
         ax.scatter(*[sdf.iloc[0][c] for c in ('x', 'y', 'z')],
                    c='green', s=80, marker='o', label='Start')
         ax.scatter(*[sdf.iloc[-1][c] for c in ('x', 'y', 'z')],
@@ -659,13 +682,13 @@ class DataCollectorNode(Node):
     # -- 2. position tracking --
     def _plot_pos_tracking(self, sdf, traj, out):
         fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
-        t = sdf['t_rel']
+        t = sdf['t_rel'].to_numpy()
         for ax, lab, c, rc in zip(axes,
                                    ['X', 'Y', 'Z'],
                                    ['x', 'y', 'z'],
                                    ['ref_x', 'ref_y', 'ref_z']):
-            ax.plot(t, sdf[c], 'b-', lw=1, label='Actual')
-            ax.plot(t, sdf[rc], 'r--', lw=1, label='Reference')
+            ax.plot(t, sdf[c].to_numpy(), 'b-', lw=1, label='Actual')
+            ax.plot(t, sdf[rc].to_numpy(), 'r--', lw=1, label='Reference')
             ax.set_ylabel(f'{lab} [m]')
             ax.legend(loc='upper right', fontsize=8)
             ax.grid(True, alpha=0.3)
@@ -678,13 +701,13 @@ class DataCollectorNode(Node):
     # -- 3. velocity tracking (world frame) --
     def _plot_vel_tracking(self, sdf, traj, out):
         fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
-        t = sdf['t_rel']
+        t = sdf['t_rel'].to_numpy()
         for ax, lab, c, rc in zip(axes,
                                    ['Vx', 'Vy', 'Vz'],
                                    ['vx', 'vy', 'vz'],
                                    ['ref_vx', 'ref_vy', 'ref_vz']):
-            ax.plot(t, sdf[c], 'b-', lw=0.9, label='Actual')
-            ax.plot(t, sdf[rc], 'r--', lw=0.9, label='Reference')
+            ax.plot(t, sdf[c].to_numpy(), 'b-', lw=0.9, label='Actual')
+            ax.plot(t, sdf[rc].to_numpy(), 'r--', lw=0.9, label='Reference')
             ax.set_ylabel(f'{lab} [m/s]')
             ax.legend(loc='upper right', fontsize=8)
             ax.grid(True, alpha=0.3)
@@ -697,19 +720,19 @@ class DataCollectorNode(Node):
     # -- 4. position error --
     def _plot_pos_error(self, sdf, met, traj, out):
         fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
-        t = sdf['t_rel']
+        t = sdf['t_rel'].to_numpy()
         labels = ['X error', 'Y error', 'Z error', '3-D error']
         cols   = ['err_x', 'err_y', 'err_z', 'err_3d']
         rmses  = [met['rmse_x'], met['rmse_y'], met['rmse_z'], met['rmse_3d']]
         for ax, lab, col, rmse in zip(axes, labels, cols, rmses):
-            ax.plot(t, sdf[col], 'b-', lw=0.8)
+            ax.plot(t, sdf[col].to_numpy(), 'b-', lw=0.8)
             ax.axhline(rmse, color='orange', ls='--', lw=1,
                         label=f'RMSE = {rmse:.4f} m')
             if col != 'err_3d':
                 ax.axhline(-rmse, color='orange', ls='--', lw=1)
             # shade last 20 %
-            t_ss = t.iloc[int(0.8 * len(t))]
-            ax.axvspan(t_ss, t.iloc[-1], alpha=0.08, color='green',
+            t_ss = t[int(0.8 * len(t))]
+            ax.axvspan(t_ss, t[-1], alpha=0.08, color='green',
                         label='Steady-state region')
             ax.set_ylabel(f'{lab} [m]')
             ax.legend(loc='upper right', fontsize=7)
@@ -723,12 +746,12 @@ class DataCollectorNode(Node):
     # -- 4. control wrench --
     def _plot_wrench(self, cdf, traj, out):
         fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
-        t = cdf['t_rel']
+        t = cdf['t_rel'].to_numpy()
         labels  = ['Thrust T [N]', 'τ_φ (roll) [N·m]',
                     'τ_θ (pitch) [N·m]', 'τ_ψ (yaw) [N·m]']
         cols    = ['thrust', 'tau_phi', 'tau_theta', 'tau_psi']
         for ax, lab, col in zip(axes, labels, cols):
-            ax.plot(t, cdf[col], 'b-', lw=0.8)
+            ax.plot(t, cdf[col].to_numpy(), 'b-', lw=0.8)
             ax.set_ylabel(lab)
             ax.grid(True, alpha=0.3)
         # hover thrust reference on thrust plot
@@ -744,10 +767,10 @@ class DataCollectorNode(Node):
     # -- 5. motor speeds --
     def _plot_motors(self, cdf, traj, out):
         fig, ax = plt.subplots(figsize=(12, 5))
-        t = cdf['t_rel']
+        t = cdf['t_rel'].to_numpy()
         colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red']
         for i, c in enumerate(colors):
-            ax.plot(t, cdf[f'w{i}'], color=c, lw=0.8, label=f'Rotor {i}')
+            ax.plot(t, cdf[f'w{i}'].to_numpy(), color=c, lw=0.8, label=f'Rotor {i}')
         ax.axhline(MAX_ROTOR_SPEED, color='red', ls='--', lw=1.2,
                     label=f'Max ({MAX_ROTOR_SPEED:.0f} rad/s)')
         ax.axhline(HOVER_OMEGA, color='gray', ls=':', lw=1,
@@ -764,13 +787,13 @@ class DataCollectorNode(Node):
     # -- 6. Euler angles --
     def _plot_euler(self, sdf, traj, out):
         fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
-        t = sdf['t_rel']
+        t = sdf['t_rel'].to_numpy()
         labels = ['φ (roll)', 'θ (pitch)', 'ψ (yaw)']
         cols   = ['phi', 'theta', 'psi']
         refs   = ['ref_phi', 'ref_theta', 'ref_psi']
         for ax, lab, col, rc in zip(axes, labels, cols, refs):
-            ax.plot(t, np.degrees(sdf[col]), 'b-', lw=0.8, label='Actual')
-            ax.plot(t, np.degrees(sdf[rc]), 'r--', lw=0.8, label='Reference')
+            ax.plot(t, np.degrees(sdf[col].to_numpy()), 'b-', lw=0.8, label='Actual')
+            ax.plot(t, np.degrees(sdf[rc].to_numpy()), 'r--', lw=0.8, label='Reference')
             # linearisation band (roll/pitch only)
             if col in ('phi', 'theta'):
                 ax.axhline( LIN_LIMIT_DEG, color='orange', ls=':', lw=1)
@@ -807,22 +830,24 @@ class DataCollectorNode(Node):
     # -- 8. MPC cost decomposition --
     def _plot_mpc_cost(self, cdf, traj, out):
         fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
-        t = cdf['t_rel']
-        cost_total = cdf['cost_state'] + cdf['cost_input']
+        t = cdf['t_rel'].to_numpy()
+        cost_state = cdf['cost_state'].to_numpy()
+        cost_input = cdf['cost_input'].to_numpy()
+        cost_total = cost_state + cost_input
 
-        axes[0].plot(t, cdf['cost_state'], 'b-', lw=0.8, label='State cost  e\'Qe')
+        axes[0].plot(t, cost_state, 'b-', lw=0.8, label='State cost  e\'Qe')
         axes[0].set_ylabel('State Cost')
         axes[0].legend(loc='upper right', fontsize=8)
         axes[0].grid(True, alpha=0.3)
 
-        axes[1].plot(t, cdf['cost_input'], 'r-', lw=0.8, label='Input cost  u\'Ru')
+        axes[1].plot(t, cost_input, 'r-', lw=0.8, label='Input cost  u\'Ru')
         axes[1].set_ylabel('Input Cost')
         axes[1].legend(loc='upper right', fontsize=8)
         axes[1].grid(True, alpha=0.3)
 
-        axes[2].fill_between(t, 0, cdf['cost_state'], alpha=0.4,
+        axes[2].fill_between(t, 0, cost_state, alpha=0.4,
                               color='tab:blue', label='State cost')
-        axes[2].fill_between(t, cdf['cost_state'], cost_total, alpha=0.4,
+        axes[2].fill_between(t, cost_state, cost_total, alpha=0.4,
                               color='tab:red', label='Input cost')
         axes[2].set_ylabel('Total Cost')
         axes[2].set_xlabel('Time [s]')
@@ -837,7 +862,7 @@ class DataCollectorNode(Node):
     # -- 9. wrench decomposition (hover + MPC delta + integral) --
     def _plot_wrench_decomp(self, cdf, traj, out):
         fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
-        t = cdf['t_rel']
+        t = cdf['t_rel'].to_numpy()
         labels = ['Thrust [N]', 'τ_φ [N·m]', 'τ_θ [N·m]', 'τ_ψ [N·m]']
         delta_cols  = ['ud_T', 'ud_phi', 'ud_theta', 'ud_psi']
         integ_cols  = ['ui_T', 'ui_phi', 'ui_theta', 'ui_psi']
@@ -846,9 +871,9 @@ class DataCollectorNode(Node):
 
         for ax, lab, dc, ic, tc, hv in zip(
                 axes, labels, delta_cols, integ_cols, total_cols, hover_vals):
-            ax.plot(t, cdf[tc], 'k-', lw=1.0, label='Total', alpha=0.9)
-            ax.plot(t, cdf[dc], 'b-', lw=0.7, label='MPC Δ', alpha=0.7)
-            ax.plot(t, cdf[ic], 'g-', lw=0.7, label='Integral', alpha=0.7)
+            ax.plot(t, cdf[tc].to_numpy(), 'k-', lw=1.0, label='Total', alpha=0.9)
+            ax.plot(t, cdf[dc].to_numpy(), 'b-', lw=0.7, label='MPC Δ', alpha=0.7)
+            ax.plot(t, cdf[ic].to_numpy(), 'g-', lw=0.7, label='Integral', alpha=0.7)
             if hv != 0:
                 ax.axhline(hv, color='gray', ls=':', lw=1,
                             label=f'Hover = {hv:.2f}')
@@ -866,8 +891,8 @@ class DataCollectorNode(Node):
     # -- 10. torque scale timeline --
     def _plot_torque_scale(self, cdf, traj, out):
         fig, ax = plt.subplots(figsize=(12, 4))
-        t = cdf['t_rel']
-        ts = cdf['torque_scale']
+        t = cdf['t_rel'].to_numpy()
+        ts = cdf['torque_scale'].to_numpy()
         ax.plot(t, ts, 'b-', lw=0.8)
         ax.fill_between(t, ts, 1.0, where=(ts < 0.999),
                          color='red', alpha=0.3, label='Torque scaled')
@@ -888,20 +913,21 @@ class DataCollectorNode(Node):
     # -- 11. integral error accumulator --
     def _plot_integral_err(self, cdf, traj, out):
         fig, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
-        t = cdf['t_rel']
+        t = cdf['t_rel'].to_numpy()
 
         for ax_lab, col, color in [('X', 'int_err_x', 'tab:blue'),
                                     ('Y', 'int_err_y', 'tab:orange'),
                                     ('Z', 'int_err_z', 'tab:green')]:
-            axes[0].plot(t, cdf[col], color=color, lw=0.8,
+            axes[0].plot(t, cdf[col].to_numpy(), color=color, lw=0.8,
                           label=f'{ax_lab}')
         axes[0].set_ylabel('Integral Error [m·s]')
         axes[0].legend(loc='upper right', fontsize=8)
         axes[0].set_title('Integral Error Accumulator (per axis)')
         axes[0].grid(True, alpha=0.3)
 
-        int_mag = np.sqrt(cdf['int_err_x']**2 + cdf['int_err_y']**2 +
-                          cdf['int_err_z']**2)
+        int_mag = np.sqrt(cdf['int_err_x'].to_numpy()**2 +
+                          cdf['int_err_y'].to_numpy()**2 +
+                          cdf['int_err_z'].to_numpy()**2)
         axes[1].plot(t, int_mag, 'k-', lw=0.8)
         axes[1].set_ylabel('|Integral Error| [m·s]')
         axes[1].set_xlabel('Time [s]')
