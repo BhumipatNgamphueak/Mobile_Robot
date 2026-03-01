@@ -599,7 +599,7 @@ Raw data files are in `data/<trajectory>_<timestamp>/` and cross-experiment comp
 **Global summary figure:**
 
 <p align="center">
-  <img src="report/fig1_rmse_all.png" width="88%"/>
+  <img src="../report/fig1_rmse_all.png" width="88%"/>
 </p>
 
 > **Figure 1** — 3D position RMSE across all 11 trajectory types, no-wind (blue) vs wind (red). ✗ marks indicate linearisation bound violated at ≥10% of flight time (Lissajous 3D only).
@@ -612,8 +612,8 @@ All metrics are evaluated over the FLYING phase only (after the 5 s pre-hover st
 
 <table>
   <tr>
-    <td><img src="data/hover_20260301_154830/position_tracking.png"/></td>
-    <td><img src="data/hover_20260301_155920/position_tracking.png"/></td>
+    <td><img src="../data/hover_20260301_154830/position_tracking.png"/></td>
+    <td><img src="../data/hover_20260301_155920/position_tracking.png"/></td>
   </tr>
   <tr>
     <td align="center"><em>Figure 2a — No Wind: SS error 9.3 mm</em></td>
@@ -642,8 +642,8 @@ All trajectories fly in the x-z plane (`traj_plane=xz`). Reference yaw is fixed 
 
 <table>
   <tr>
-    <td><img src="data/sine_2d_20260301_155013/position_tracking.png"/></td>
-    <td><img src="data/sine_2d_20260301_160049/position_tracking.png"/></td>
+    <td><img src="../data/sine_2d_20260301_155013/position_tracking.png"/></td>
+    <td><img src="../data/sine_2d_20260301_160049/position_tracking.png"/></td>
   </tr>
   <tr>
     <td align="center"><em>Figure 3a — No Wind: x lag at sine z-peaks; RMSE 0.246 m</em></td>
@@ -681,8 +681,8 @@ All trajectories fly in the x-z plane (`traj_plane=xz`). Reference yaw is fixed 
 
 <table>
   <tr>
-    <td><img src="data/helix_20260301_155524/3d_trajectory.png"/></td>
-    <td><img src="data/helix_20260301_160344/3d_trajectory.png"/></td>
+    <td><img src="../data/helix_20260301_155524/3d_trajectory.png"/></td>
+    <td><img src="../data/helix_20260301_160344/3d_trajectory.png"/></td>
   </tr>
   <tr>
     <td align="center"><em>Figure 4a — No Wind: clean helical climb; orbit lag symmetric</em></td>
@@ -696,8 +696,8 @@ All trajectories fly in the x-z plane (`traj_plane=xz`). Reference yaw is fixed 
 
 <table>
   <tr>
-    <td><img src="data/lissajous_3d_20260301_155743/euler_angles.png"/></td>
-    <td><img src="data/lissajous_3d_20260301_160539/euler_angles.png"/></td>
+    <td><img src="../data/lissajous_3d_20260301_155743/euler_angles.png"/></td>
+    <td><img src="../data/lissajous_3d_20260301_160539/euler_angles.png"/></td>
   </tr>
   <tr>
     <td align="center"><em>Figure 5a — No Wind: roll reaches 20.5° — VIOLATES ±15° bound</em></td>
@@ -733,8 +733,8 @@ The $y(t) = R\sin(2\omega t)$ component at $2\omega = 2.51$ rad/s with $R = 0.5$
 
 <table>
   <tr>
-    <td><img src="data/hover_20260301_155920/wrench_decomposition.png"/></td>
-    <td><img src="data/cone_helix_20260301_155705/mpc_cost.png"/></td>
+    <td><img src="../data/hover_20260301_155920/wrench_decomposition.png"/></td>
+    <td><img src="../data/cone_helix_20260301_155705/mpc_cost.png"/></td>
   </tr>
   <tr>
     <td align="center"><em>Figure 6a — Hover wind: integral contribution grows as wind accumulates</em></td>
@@ -745,7 +745,7 @@ The $y(t) = R\sin(2\omega t)$ component at $2\omega = 2.51$ rad/s with $R = 0.5$
 All experiments achieved **100% MPC solve rate** and **zero torque-scale events** ($\lambda^* = 1.0$ always). Motor utilisation: 43.0–44.2% across all conditions, confirming 56% headroom for disturbance rejection.
 
 <p align="center">
-  <img src="report/fig4_motor_utilization.png" width="85%"/>
+  <img src="../report/fig4_motor_utilization.png" width="85%"/>
 </p>
 
 > **Figure 7** — Per-rotor utilisation. No-wind: all 4 rotors balanced at ~44%. Wind: rotors 0 & 3 spin faster (roll bias countering −y wind), rotors 1 & 2 partially unloaded.
@@ -761,7 +761,7 @@ All experiments remain within the ±15° linearisation bound **except** Lissajou
 The MPC cost decomposition provides a diagnostic: trajectories within the linearisation region show declining state cost after the initial transient (Straight 3D: $\bar{J}_x = 0.19$), while Cone Helix shows growing state cost as the orbital radius expands ($\bar{J}_x = 2.73$).
 
 <p align="center">
-  <img src="report/fig6_euler_maxangle.png" width="80%"/>
+  <img src="../report/fig6_euler_maxangle.png" width="80%"/>
 </p>
 
 > **Figure 8** — Maximum roll and pitch across all trajectories vs the ±15° linearisation validity boundary (dashed red). All experiments except Lissajous 3D remain within the valid region.
@@ -779,7 +779,7 @@ RMSE increases monotonically with trajectory complexity, driven by two distinct 
 The elevated **steady-state error for orbital trajectories** (0.22–0.49 m vs straight-line 0.05–0.08 m) is a formulation limitation: the constant-reference MPC horizon sees a fixed waypoint, not the upcoming curvature, producing systematic phase lag proportional to orbital speed.
 
 <p align="center">
-  <img src="report/fig5_complexity_scatter.png" width="78%"/>
+  <img src="../report/fig5_complexity_scatter.png" width="78%"/>
 </p>
 
 > **Figure 9** — Max roll angle vs RMSE. The strong positive correlation quantifies the linearisation-degradation mechanism. Lissajous 3D (✗) breaks the trend by operating beyond the valid model region.
