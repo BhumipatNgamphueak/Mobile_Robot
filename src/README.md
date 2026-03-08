@@ -118,8 +118,8 @@ quad_controller/
 
 Two frames are used throughout:
 
-- **World frame** $\{W\}$: inertial, East-North-Up (ENU), fixed to the Gazebo origin.
-- **Body frame** $\{B\}$: attached to the centre of mass of the quadrotor, $z$-axis pointing upward through the propeller disc plane.
+- **World frame** $\lbrace W\rbrace$: inertial, East-North-Up (ENU), fixed to the Gazebo origin.
+- **Body frame** $\lbrace B\rbrace$: attached to the centre of mass of the quadrotor, $z$-axis pointing upward through the propeller disc plane.
 
 ### 3.2 State Vector
 
@@ -127,8 +127,8 @@ The 12-dimensional state vector is defined as:
 
 $$\mathbf{x} = \begin{bmatrix} x & y & z & \phi & \theta & \psi & \dot{x} & \dot{y} & \dot{z} & p & q & r \end{bmatrix}^\top \in \mathbb{R}^{12}$$
 
-where $(x, y, z)$ is the position in $\{W\}$, $(\phi, \theta, \psi)$ are the **ZXY Euler angles** (roll, pitch, yaw),
-$(\dot{x}, \dot{y}, \dot{z})$ are linear velocities in $\{W\}$, and $(p, q, r)$ are body-frame angular rates.
+where $(x, y, z)$ is the position in $\lbrace W\rbrace$, $(\phi, \theta, \psi)$ are the **ZXY Euler angles** (roll, pitch, yaw),
+$(\dot{x}, \dot{y}, \dot{z})$ are linear velocities in $\lbrace W\rbrace$, and $(p, q, r)$ are body-frame angular rates.
 
 **ZXY convention:** The rotation matrix from body to world is
 
@@ -169,7 +169,7 @@ $$T_i = k_F \omega_i^2, \qquad \tau_{d,i} = -d_i \, k_F \, k_M \, \omega_i^2$$
 
 where $k_F = 8.549 \times 10^{-6}\ \mathrm{N/(rad/s)}^2$ is the thrust coefficient,
 $k_M = 0.06$ is the dimensionless moment-to-thrust ratio (Gazebo `momentConstant`),
-and $d_i \in \{+1, -1\}$ is the spinning direction (CCW = $+1$, CW = $-1$).
+and $d_i \in \lbrace+1, -1\rbrace$ is the spinning direction (CCW = $+1$, CW = $-1$).
 
 The effective yaw coefficient is $\kappa = k_F k_M = 5.129 \times 10^{-7}\ \mathrm{N \cdot m/(rad/s)}^2$.
 
@@ -361,15 +361,19 @@ $$\boldsymbol{\omega}^2 = \mathbf{A}^{-1}\mathbf{u}_{\text{total}}, \qquad \omeg
 
 If all $\omega_i \leq \omega_{\max} = 1500$ rad/s the allocation is accepted. Otherwise, **thrust-priority allocation** proceeds:
 
-1. Decompose:
+**Step 1 — Decompose:**
 
-   $$\mathbf{u}_T = [T, 0, 0, 0]^\top, \qquad \mathbf{u}_\tau = [0, \tau_\phi, \tau_\theta, \tau_\psi]^\top$$
-2. If thrust alone saturates a rotor, scale $T$ to $0.95\,\omega_{\max}^2 \, k_F^{-1}$ and drop all torques ($\lambda = 0$).
-3. Otherwise, **binary search** over $\lambda \in [0,1]$ for 20 iterations (accuracy $\approx 10^{-6}$):
-   $$\lambda^* = \max\{\lambda : \boldsymbol{\omega}(\mathbf{u}_T + \lambda\,\mathbf{u}_\tau) \leq \omega_{\max}\}$$
-   Apply:
+$$\mathbf{u}_T = [T, 0, 0, 0]^\top, \qquad \mathbf{u}_\tau = [0, \tau_\phi, \tau_\theta, \tau_\psi]^\top$$
 
-   $$\mathbf{u}_{\text{final}} = \mathbf{u}_T + \lambda^*\,\mathbf{u}_\tau$$
+**Step 2** — If thrust alone saturates a rotor, scale $T$ to $0.95\,\omega_{\max}^2 \, k_F^{-1}$ and drop all torques ($\lambda = 0$).
+
+**Step 3** — Otherwise, **binary search** over $\lambda \in [0,1]$ for 20 iterations (accuracy $\approx 10^{-6}$):
+
+$$\lambda^* = \max\lbrace\lambda : \boldsymbol{\omega}(\mathbf{u}_T + \lambda\,\mathbf{u}_\tau) \leq \omega_{\max}\rbrace$$
+
+Apply:
+
+$$\mathbf{u}_{\text{final}} = \mathbf{u}_T + \lambda^*\,\mathbf{u}_\tau$$
 
 The **torque scale** $\lambda^*$ (field `[12]` of `/mpc_debug`) indicates saturation severity: $\lambda^* = 1.0$ = full torque authority, $\lambda^* < 1.0$ = torques sacrificed to preserve altitude. Thrust is always protected because position control (altitude) takes priority over attitude tracking.
 
@@ -676,8 +680,8 @@ All metrics are evaluated over the FLYING phase only (after the 5 s pre-hover st
 |--------|---------|-----------------|
 | RMSE 3D [m] | **0.0215** | 0.0910 |
 | SS error 3D [m] | **0.0106** | 0.0425 |
-| Max $\|\phi\|$ (°) | 0.0 | 2.0 |
-| Max $\|\theta\|$ (°) | 0.0 | 0.6 |
+| Max $\lvert\phi\rvert$ (°) | 0.0 | 2.0 |
+| Max $\lvert\theta\rvert$ (°) | 0.0 | 0.6 |
 | Lin. Valid (%) | 100.0 | 100.0 |
 
 The integral action drives the residual y-offset down under wind. Under wind, rotors 0 & 3 spin faster to generate the roll bias countering the −y force — the physical signature of integral compensation.
@@ -703,7 +707,7 @@ All trajectories fly in the x-z plane (`traj_plane=xz`). Reference yaw is fixed 
 
 #### Consolidated 2D Metrics
 
-| Trajectory | Wind | RMSE 3D (m) | SS Err (m) | Max $\|\theta\|$ (°) |
+| Trajectory | Wind | RMSE 3D (m) | SS Err (m) | Max $\lvert\theta\rvert$ (°) |
 |------------|------|:-----------:|:---------:|:-------------------:|
 | Straight 2D | No | 0.0508 | 0.0268 | 3.6 |
 | Straight 2D | Yes | 0.0860 | 0.0450 | 3.7 |
@@ -758,7 +762,7 @@ The $y(t) = R\sin(2\omega t)$ component at $2\omega = 2.51$ rad/s with $R = 0.5$
 
 #### Consolidated 3D Metrics
 
-| Trajectory | Wind | RMSE 3D (m) | SS Err (m) | Max $\|\phi\|$ (°) | Max $\|\theta\|$ (°) | Lin. Valid |
+| Trajectory | Wind | RMSE 3D (m) | SS Err (m) | Max $\lvert\phi\rvert$ (°) | Max $\lvert\theta\rvert$ (°) | Lin. Valid |
 |------------|------|:-----------:|:---------:|:------------------:|:--------------------:|:----------:|
 | Straight 3D | No | **0.0460** | **0.0200** | 1.8 | 3.0 | ✓ |
 | Straight 3D | Yes | 0.0906 | 0.0529 | 3.0 | 3.2 | ✓ |
@@ -803,13 +807,13 @@ All experiments achieved **100% MPC solve rate** and **zero torque-scale events*
 
 ### 8.5 Prediction Horizon Comparison (with Trajectory Preview)
 
-To quantify the effect of the MPC prediction horizon $N$ on tracking performance, the **cone helix** trajectory was re-run with six different horizon lengths: $N \in \{1,\, 5,\, 20,\, 50,\, 100,\, 250\}$ steps, corresponding to lookahead windows of 0.02 s to 5.0 s. All runs use the no-wind environment with identical Q/R weights.
+To quantify the effect of the MPC prediction horizon $N$ on tracking performance, the **cone helix** trajectory was re-run with six different horizon lengths: $N \in \lbrace 1,\, 5,\, 20,\, 50,\, 100,\, 250 \rbrace$ steps, corresponding to lookahead windows of 0.02 s to 5.0 s. All runs use the no-wind environment with identical Q/R weights.
 
 All experiments use **trajectory preview**: the trajectory generator publishes the full $N$-step future reference sequence so the MPC can anticipate upcoming curvature changes.
 
 #### Quantitative Comparison
 
-| Horizon $N$ | Lookahead [s] | RMSE 3D [m] | SS Err 3D [m] | Max $\|\phi\|$ (°) | Max $\|\theta\|$ (°) | Lin. Valid (%) | Ctrl Energy |
+| Horizon $N$ | Lookahead [s] | RMSE 3D [m] | SS Err 3D [m] | Max $\lvert\phi\rvert$ (°) | Max $\lvert\theta\rvert$ (°) | Lin. Valid (%) | Ctrl Energy |
 |:-----------:|:-------------:|:-----------:|:------------:|:------------------:|:--------------------:|:--------------:|:-----------:|
 | 1 | 0.02 | 0.303 | 0.482 | 8.0 | 8.8 | 100.0% | 2237 |
 | 5 | 0.10 | 0.304 | 0.483 | 8.0 | 8.8 | 100.0% | 2237 |
