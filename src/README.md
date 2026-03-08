@@ -91,8 +91,8 @@ Wind disturbance rejection is achieved through an **integral action** term appen
 | `/odom` | `nav_msgs/Odometry` | BEST_EFFORT | Gazebo ground-truth pose at ~100 Hz |
 | `/state_estimate` | `nav_msgs/Odometry` | RELIABLE | EKF 12-state output at 100 Hz |
 | `/reference_state` | `std_msgs/Float64MultiArray` | RELIABLE | 12-state trajectory reference at 50 Hz |
-| `/control_wrench` | `std_msgs/Float64MultiArray` | RELIABLE | Total wrench $[T,$ $\tau_\phi,$ $\tau_\theta,$ $\tau_\psi]$ at 50 Hz |
-| `/motor_commands` | `actuator_msgs/Actuators` | RELIABLE | Rotor speeds $[\omega_0,$ $\omega_1,$ $\omega_2,$ $\omega_3]$ at 50 Hz |
+| `/control_wrench` | `std_msgs/Float64MultiArray` | RELIABLE | Total wrench $[T, \tau_\phi, \tau_\theta, \tau_\psi]$ at 50 Hz |
+| `/motor_commands` | `actuator_msgs/Actuators` | RELIABLE | Rotor speeds $[\omega_0, \omega_1, \omega_2, \omega_3]$ at 50 Hz |
 | `/mpc_debug` | `std_msgs/Float64MultiArray` | RELIABLE | 19-field MPC internal telemetry at 50 Hz |
 
 ### 2.3 Package Structure
@@ -171,7 +171,7 @@ where $k_F = 8.549 \times 10^{-6}\ \mathrm{N/(rad/s)}^2$ is the thrust coefficie
 $k_M = 0.06$ is the dimensionless moment-to-thrust ratio (Gazebo `momentConstant`),
 and $d_i \in \{+1, -1\}$ is the spinning direction (CCW = $+1$, CW = $-1$).
 
-The effective yaw coefficient is $\kappa = k_F k_M = 5.129 \times 10^{-7}\ \mathrm{N{\cdot}m/(rad/s)}^2$.
+The effective yaw coefficient is $\kappa = k_F k_M = 5.129 \times 10^{-7}\ \mathrm{N \cdot m/(rad/s)}^2$.
 
 ### 3.5 Motor Layout and Allocation Matrix
 
@@ -187,7 +187,7 @@ Rotor positions and directions (from `quadrotor_base.xacro`):
 The wrench is related to squared rotor speeds by:
 
 $$
-\begin{bmatrix} T \\\\ \tau_\phi \\\\ \tau_\theta \\\\ \tau_\psi \end{bmatrix} = \underbrace{\begin{bmatrix} k_F & k_F & k_F & k_F \\\\ k_F r_{y,0} & k_F r_{y,1} & k_F r_{y,2} & k_F r_{y,3} \\\\ -k_F r_{x,0} & -k_F r_{x,1} & -k_F r_{x,2} & -k_F r_{x,3} \\\\ -d_0\kappa & -d_1\kappa & -d_2\kappa & -d_3\kappa \end{bmatrix}}_{\mathbf{A}} \begin{bmatrix} \omega_0^2 \\\\ \omega_1^2 \\\\ \omega_2^2 \\\\ \omega_3^2 \end{bmatrix}
+\begin{bmatrix} T \\ \tau_\phi \\ \tau_\theta \\ \tau_\psi \end{bmatrix} = \underbrace{\begin{bmatrix} k_F & k_F & k_F & k_F \\ k_F r_{y,0} & k_F r_{y,1} & k_F r_{y,2} & k_F r_{y,3} \\ -k_F r_{x,0} & -k_F r_{x,1} & -k_F r_{x,2} & -k_F r_{x,3} \\ -d_0\kappa & -d_1\kappa & -d_2\kappa & -d_3\kappa \end{bmatrix}}_{\mathbf{A}} \begin{bmatrix} \omega_0^2 \\ \omega_1^2 \\ \omega_2^2 \\ \omega_3^2 \end{bmatrix}
 $$
 
 Motor speeds are recovered by $\boldsymbol{\omega}^2 = \mathbf{A}^{-1} \mathbf{u}$, where
@@ -203,7 +203,7 @@ the nonlinear dynamics reduce to the continuous LTI system
 $\dot{\mathbf{x}} = A_c\,\mathbf{x} + B_c\,\mathbf{u}$:
 
 $$
-A_c = \begin{bmatrix} \mathbf{0}_3 & \mathbf{0}_3 & I_3 & \mathbf{0}_3 \\\\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & I_3 \\\\ \mathbf{0}_{3\times3}^* & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \\\\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \end{bmatrix}, \quad B_c = \begin{bmatrix} \mathbf{0}_{6\times4} \\\\ B_{\text{acc}} \end{bmatrix}
+A_c = \begin{bmatrix} \mathbf{0}_3 & \mathbf{0}_3 & I_3 & \mathbf{0}_3 \\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & I_3 \\ \mathbf{0}_{3\times3}^* & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \end{bmatrix}, \quad B_c = \begin{bmatrix} \mathbf{0}_{6\times4} \\ B_{\text{acc}} \end{bmatrix}
 $$
 
 The non-zero coupling entries in $A_c$ are:
@@ -270,13 +270,13 @@ $$\mathbf{X} = \Phi\,\mathbf{x}_0 + \Gamma\,\mathbf{U} \qquad \mathbf{X} = [\mat
 The **free-response matrix** $\Phi$ stacks powers of $A_d$ beginning at $A_d^1$ (block row $i$ contains $A_d^{i+1}$, for $i = 0,\ldots,N-1$):
 
 $$
-\Phi = \begin{bmatrix} A_d \\\\ A_d^2 \\\\ \vdots \\\\ A_d^N \end{bmatrix} \in \mathbb{R}^{Nn \times n}
+\Phi = \begin{bmatrix} A_d \\ A_d^2 \\ \vdots \\ A_d^N \end{bmatrix} \in \mathbb{R}^{Nn \times n}
 $$
 
 The **forced-response matrix** $\Gamma$ is lower-block-triangular. At zero-indexed block position $(i,j)$ with $i \geq j$:
 
 $$
-\Gamma_{ij} = A_d^{i-j}\,B_d, \qquad \Gamma = \begin{bmatrix} B_d & 0 & \cdots & 0 \\\\ A_d B_d & B_d & \cdots & 0 \\\\ A_d^2 B_d & A_d B_d & \cdots & 0 \\\\ \vdots & \vdots & \ddots & \vdots \\\\ A_d^{N-1}B_d & A_d^{N-2}B_d & \cdots & B_d \end{bmatrix} \in \mathbb{R}^{Nn \times Nm}
+\Gamma_{ij} = A_d^{i-j}\,B_d, \qquad \Gamma = \begin{bmatrix} B_d & 0 & \cdots & 0 \\ A_d B_d & B_d & \cdots & 0 \\ A_d^2 B_d & A_d B_d & \cdots & 0 \\ \vdots & \vdots & \ddots & \vdots \\ A_d^{N-1}B_d & A_d^{N-2}B_d & \cdots & B_d \end{bmatrix} \in \mathbb{R}^{Nn \times Nm}
 $$
 
 The lower-triangular structure captures causality: input at step $j$ only influences states at steps $j, j+1, \ldots, N-1$. Both $\Phi$ and $\Gamma$ are computed once at node startup using the ZOH-discretised matrices from `scipy.signal.cont2discrete`. The block cost matrices are
@@ -316,7 +316,7 @@ The hover-point linearisation couples pitch to world $x$-acceleration and roll t
 Both state and reference are rotated into the drone's heading frame to restore this alignment at arbitrary yaw:
 
 $$
-\begin{bmatrix} x^h \\\\ y^h \end{bmatrix} = \underbrace{\begin{bmatrix} \cos\psi & \sin\psi \\\\ -\sin\psi & \cos\psi \end{bmatrix}}_{R_z(-\psi)} \begin{bmatrix} x \\\\ y \end{bmatrix}, \qquad \begin{bmatrix} \dot{x}^h \\\\ \dot{y}^h \end{bmatrix} = R_z(-\psi) \begin{bmatrix} \dot{x} \\\\ \dot{y} \end{bmatrix}
+\begin{bmatrix} x^h \\ y^h \end{bmatrix} = \underbrace{\begin{bmatrix} \cos\psi & \sin\psi \\ -\sin\psi & \cos\psi \end{bmatrix}}_{R_z(-\psi)} \begin{bmatrix} x \\ y \end{bmatrix}, \qquad \begin{bmatrix} \dot{x}^h \\ \dot{y}^h \end{bmatrix} = R_z(-\psi) \begin{bmatrix} \dot{x} \\ \dot{y} \end{bmatrix}
 $$
 
 The yaw state is zeroed ($\psi^h = 0$) and the yaw reference is set to the yaw error $\Delta\psi_{\mathrm{ref}}$ (wrapped to $[-\pi,\pi]$).
@@ -331,7 +331,7 @@ $$\mathbf{u}_\delta = K_r\,\mathbf{X}_{\text{ref}} + K_x\,\mathbf{x}_0^h$$
 The gravity feedforward restores the true wrench:
 
 $$
-\mathbf{u}_{\text{total}} = \mathbf{u}_\delta + \begin{bmatrix}mg \\\\ 0 \\\\ 0 \\\\ 0\end{bmatrix}
+\mathbf{u}_{\text{total}} = \mathbf{u}_\delta + \begin{bmatrix}mg \\ 0 \\ 0 \\ 0\end{bmatrix}
 $$
 
 **Step 4 — Integral action** (if $z > 0.15$ m):
@@ -341,7 +341,7 @@ $$\mathbf{u}_{\text{total}} \mathrel{+}= \mathbf{u}_I$$
 
 **Step 5 — Thrust-priority motor allocation.**
 $\mathbf{u}_{\mathrm{total}}$ is inverted to rotor speeds; if saturation occurs a binary search scales torques while preserving thrust (see Section 4.6).
-Rotor speeds $[\omega_0,$ $\omega_1,$ $\omega_2,$ $\omega_3]$ are published to `/motor_commands`.
+Rotor speeds $[\omega_0, \omega_1, \omega_2, \omega_3]$ are published to `/motor_commands`.
 
 ### 4.5 Yaw Compensation
 
@@ -364,7 +364,7 @@ If all $\omega_i \leq \omega_{\max} = 1500$ rad/s the allocation is accepted. Ot
 1. Decompose:
 
    $$\mathbf{u}_T = [T, 0, 0, 0]^\top, \qquad \mathbf{u}_\tau = [0, \tau_\phi, \tau_\theta, \tau_\psi]^\top$$
-2. If thrust alone saturates a rotor, scale $T$ to $0.95\,\omega_{\max}^2$ $k_F^{-1}$ and drop all torques ($\lambda = 0$).
+2. If thrust alone saturates a rotor, scale $T$ to $0.95\,\omega_{\max}^2 \, k_F^{-1}$ and drop all torques ($\lambda = 0$).
 3. Otherwise, **binary search** over $\lambda \in [0,1]$ for 20 iterations (accuracy $\approx 10^{-6}$):
    $$\lambda^* = \max\{\lambda : \boldsymbol{\omega}(\mathbf{u}_T + \lambda\,\mathbf{u}_\tau) \leq \omega_{\max}\}$$
    Apply:
@@ -379,7 +379,7 @@ The proportional MPC has no internal model of constant disturbances: a persisten
 
 **World-frame accumulation** (while airborne, $z > 0.15$ m):
 
-$$\mathbf{e}_I[k+1] = \text{clip}\!\left(\mathbf{e}_I[k] + (\mathbf{p}_{\text{ref}} - \mathbf{p})\,\Delta t,\ -e_{\max},\ +e_{\max}\right), \qquad e_{\max} = 2.0\ \text{m}{\cdot}\text{s}$$
+$$\mathbf{e}_I[k+1] = \text{clip}\!\left(\mathbf{e}_I[k] + (\mathbf{p}_{\text{ref}} - \mathbf{p})\,\Delta t,\ -e_{\max},\ +e_{\max}\right), \qquad e_{\max} = 2.0\ \text{m} \cdot \text{s}$$
 
 The anti-windup clamp prevents runaway accumulation during large setpoint transitions.
 
@@ -410,7 +410,7 @@ At each 100 Hz prediction tick, the EKF propagates the full nonlinear equations 
 $$\dot{\mathbf{p}} = \mathbf{v}$$
 
 $$
-\dot{\mathbf{v}} = R_{WB}(\phi,\theta,\psi)\begin{bmatrix}0\\\\0\\\\T/m\end{bmatrix} + \begin{bmatrix}0\\\\0\\\\-g\end{bmatrix}
+\dot{\mathbf{v}} = R_{WB}(\phi,\theta,\psi)\begin{bmatrix}0\\0\\T/m\end{bmatrix} + \begin{bmatrix}0\\0\\-g\end{bmatrix}
 $$
 
 where $R_{WB}$ is the ZXY rotation matrix defined in Section 3.2.
@@ -432,7 +432,7 @@ The gyroscopic cross-product terms $(qr,\, pr,\, pq)$ couple the three angular r
 Rather than computing the full nonlinear Jacobian $\partial f/\partial\mathbf{x}$ (which involves partial derivatives of $R_{WB}$ and gyroscopic terms), the EKF uses a **simplified Jacobian** retaining only the dominant linear couplings:
 
 $$
-F = \frac{\partial f}{\partial \mathbf{x}}\bigg|_{\text{simplified}} = \begin{bmatrix} 0_3 & 0_3 & I_3 & 0_3 \\\\ 0_3 & 0_3 & 0_3 & I_3 \\\\ 0_3 & F_g & 0_3 & 0_3 \\\\ 0_3 & 0_3 & 0_3 & 0_3 \end{bmatrix}
+F = \frac{\partial f}{\partial \mathbf{x}}\bigg|_{\text{simplified}} = \begin{bmatrix} 0_3 & 0_3 & I_3 & 0_3 \\ 0_3 & 0_3 & 0_3 & I_3 \\ 0_3 & F_g & 0_3 & 0_3 \\ 0_3 & 0_3 & 0_3 & 0_3 \end{bmatrix}
 $$
 
 where $F_g$ captures the linearised gravity-attitude coupling evaluated at the current angles:
@@ -462,7 +462,7 @@ This is a linear measurement model that directly observes all 6 pose states. Ang
 The accelerometer in a multirotor measures the **specific force in the body frame** — the net non-gravitational force per unit mass. Near hover, this is dominated by the rotor thrust:
 
 $$
-\mathbf{a}_{\text{pred}} = \begin{bmatrix}0 \\\\ 0 \\\\ T/m\end{bmatrix} \quad (\text{body frame, exact for any attitude})
+\mathbf{a}_{\text{pred}} = \begin{bmatrix}0 \\ 0 \\ T/m\end{bmatrix} \quad (\text{body frame, exact for any attitude})
 $$
 
 Because this prediction depends on the control input $T$ rather than any state, the accelerometer Jacobian rows are zero: $H_{\text{imu}}[0:3,\,:] = 0$. The Kalman gain for those rows vanishes and the accelerometer innovation does not update the state. Only the **gyroscope rows** have non-zero Jacobian entries:
