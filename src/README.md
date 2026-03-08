@@ -177,7 +177,7 @@ The effective yaw coefficient is $`\kappa = k_F k_M = 5.129 \times 10^{-7}\ \mat
 
 Rotor positions and directions (from `quadrotor_base.xacro`):
 
-| Rotor | Position ($r_x$, $r_y$) [m] | Direction $d_i$ |
+| Rotor | Position ($`r_x`$, $`r_y`$) [m] | Direction $`d_i`$ |
 |-------|--------------------------|----------------|
 | 0 (front-right) | $(+0.13,\ -0.22)$ | CCW ($+1$) |
 | 1 (rear-left)   | $(-0.13,\ +0.20)$ | CCW ($+1$) |
@@ -210,7 +210,7 @@ The non-zero coupling entries in $A_c$ are:
 
 $$\ddot{x} \approx g\,\theta, \qquad \ddot{y} \approx -g\,\phi$$
 
-and (rows 7–12, columns $T$, $\tau_\phi$, $\tau_\theta$, $\tau_\psi$):
+and (rows 7–12, columns $T$, $`\tau_\phi`$, $`\tau_\theta`$, $`\tau_\psi`$):
 
 $$B_{\text{acc}} = \text{diag}(0, 0, 1/m, 1/I_{xx}, 1/I_{yy}, 1/I_{zz})$$
 
@@ -261,13 +261,13 @@ Position is weighted highest to prioritise tracking; attitude and velocity provi
 
 ### 4.2 Batch-Form Prediction Matrices
 
-The predicted state sequence over the full horizon is expressed as a linear function of the current state $\mathbf{x}_0$ and the stacked control sequence
+The predicted state sequence over the full horizon is expressed as a linear function of the current state $`\mathbf{x}_0`$ and the stacked control sequence
 
 $$\mathbf{U} = [\mathbf{u}_0^\top, \ldots, \mathbf{u}_{N-1}^\top]^\top \in \mathbb{R}^{Nm}$$
 
 $$\mathbf{X} = \Phi\,\mathbf{x}_0 + \Gamma\,\mathbf{U} \qquad \mathbf{X} = [\mathbf{x}_1^\top,\ldots,\mathbf{x}_N^\top]^\top \in \mathbb{R}^{Nn}$$
 
-The **free-response matrix** $\Phi$ stacks powers of $A_d$ beginning at $A_d^1$ (block row $i$ contains $A_d^{i+1}$, for $i = 0,\ldots,N-1$):
+The **free-response matrix** $\Phi$ stacks powers of $`A_d`$ beginning at $`A_d^1`$ (block row $i$ contains $`A_d^{i+1}`$, for $i = 0,\ldots,N-1$):
 
 $$
 \Phi = \begin{bmatrix} A_d \\ A_d^2 \\ \vdots \\ A_d^N \end{bmatrix} \in \mathbb{R}^{Nn \times n}
@@ -299,7 +299,7 @@ $$K_r = \bigl[H^{-1}G^\top Q\bigr]_{0:m,\,:} \in \mathbb{R}^{m \times Nn} \qquad
 
 $$K_x = -\bigl[H^{-1}G^\top Q\,\Phi\bigr]_{0:m,\,:} \in \mathbb{R}^{m \times n} \qquad \text{(state feedback gain)}$$
 
-The **negative sign in $K_x$** arises from the sign reversal of the state term $-\Phi\mathbf{x}_0$ relative to the reference term
+The **negative sign in $`K_x`$** arises from the sign reversal of the state term $`-\Phi\mathbf{x}_0`$ relative to the reference term
 $+\mathbf{X}_{\mathrm{ref}}$. Once computed offline, the optimal perturbation control at every 50 Hz tick is:
 
 $$\mathbf{u}_\delta = K_r\,\mathbf{X}_{\text{ref}} + K_x\,\mathbf{x}_0^h$$
@@ -348,9 +348,9 @@ Rotor speeds $`[\omega_0, \omega_1, \omega_2, \omega_3]`$ are published to `/mot
 The hover linearisation derives $\ddot{x} \approx g\theta$ and $\ddot{y} \approx -g\phi$ by expanding
 $R_{WB}\,[0,0,T/m]^\top$ at $\phi=\theta=\psi=0$.
 When the drone yaws by $\psi \neq 0$, the body $x$-axis no longer aligns with the world $x$-axis: pitch now accelerates along $(\cos\psi, \sin\psi)$ in the world plane, and roll along $(-\sin\psi, \cos\psi)$.
-Feeding world-frame position error directly into $K_r$, $K_x$ would therefore generate incorrect roll/pitch commands with heading-dependent cross-coupling.
+Feeding world-frame position error directly into $`K_r`$, $`K_x`$ would therefore generate incorrect roll/pitch commands with heading-dependent cross-coupling.
 
-By rotating both $\mathbf{x}_0$ and $\mathbf{x}_{\mathrm{ref}}$ into the heading frame first, the MPC always operates in a virtual frame where the drone's nose points along $+x$.
+By rotating both $`\mathbf{x}_0`$ and $`\mathbf{x}_{\mathrm{ref}}`$ into the heading frame first, the MPC always operates in a virtual frame where the drone's nose points along $+x$.
 The output torques $`[\tau_\phi,\tau_\theta]`$ are body-frame quantities in that virtual frame, which coincides with the actual body frame — so no additional back-rotation is needed before commanding motors.
 
 ### 4.6 Motor Allocation with Thrust Priority
@@ -445,7 +445,7 @@ $$F_g[6,4] = g\cos\theta \quad\Leftarrow\quad \ddot{x} \approx g\sin\theta \appr
 
 $$F_g[7,3] = -g\cos\phi \quad\Leftarrow\quad \ddot{y} \approx -g\sin\phi \approx -g\phi$$
 
-Note that the $I_3$ blocks for angle-rate coupling use the small-angle approximation $\dot{\phi}\approx p$, $\dot{\theta}\approx q$, $\dot{\psi}\approx r$, and the gyroscopic terms are omitted from $F$ (they are second-order in angular rate and negligible near hover). The discrete-time Jacobian is $F_d = I + F\Delta t$ and the covariance is propagated as:
+Note that the $`I_3`$ blocks for angle-rate coupling use the small-angle approximation $\dot{\phi}\approx p$, $\dot{\theta}\approx q$, $\dot{\psi}\approx r$, and the gyroscopic terms are omitted from $F$ (they are second-order in angular rate and negligible near hover). The discrete-time Jacobian is $`F_d = I + F\Delta t`$ and the covariance is propagated as:
 
 $$P_{k|k-1} = F_d\,P_{k-1}\,F_d^\top + Q_{\text{proc}}$$
 
@@ -565,13 +565,13 @@ with $R = 0.5$ m, $f = 0.2$ Hz, $c = 0.15$ m/s.
 
 #### Conical Spiral (`cone_helix`)
 
-Expanding-radius helix that forms a cone shape. Radius grows linearly with time at rate $\dot{R} = R_{\max}\,f$ (where $R_{\max}$ = `traj_radius`, $f$ = `traj_frequency`):
+Expanding-radius helix that forms a cone shape. Radius grows linearly with time at rate $`\dot{R} = R_{\max}\,f`$ (where $`R_{\max}`$ = `traj_radius`, $f$ = `traj_frequency`):
 
 $$R(t) = R_{\max}\,f\,t, \quad x(t) = R(t)\sin(\omega t), \quad y(t) = R(t)(1-\cos(\omega t)), \quad z(t) = z_0 + c\,t$$
 
 $$\dot{x} = \dot{R}\sin(\omega t) + R(t)\,\omega\cos(\omega t), \quad \dot{y} = \dot{R}(1-\cos(\omega t)) + R(t)\,\omega\sin(\omega t), \quad \dot{z} = c$$
 
-where $\omega = 2\pi f$ and $\dot{R} = R_{\max}\,f$ is constant. With defaults $R_{\max}=0.5$ m, $f=0.2$ Hz: after the first revolution ($T=5$ s) the radius is $0.5$ m; after the second it is $1.0$ m — producing a conical path that starts at the hover point and expands outward.
+where $\omega = 2\pi f$ and $`\dot{R} = R_{\max}\,f`$ is constant. With defaults $`R_{\max}=0.5`$ m, $f=0.2$ Hz: after the first revolution ($T=5$ s) the radius is $0.5$ m; after the second it is $1.0$ m — producing a conical path that starts at the hover point and expands outward.
 
 #### Figure-8 3D (`figure8_3d`)
 
@@ -900,7 +900,7 @@ All experiments use **trajectory preview**: the trajectory generator publishes t
 
 All experiments remain within the ±15° linearisation bound **except** Lissajous 3D (max roll 20.5°–22.9°). The boundary-approaching cases are Figure-8 3D (max roll 8.8°–10.8°) and Cone Helix (max pitch 8.3°–8.4°), where the linearisation error $\sin\theta - \theta$ is approximately 0.4–1.3%.
 
-The MPC cost decomposition provides a diagnostic: trajectories within the linearisation region show declining state cost after the initial transient (Straight 3D: $\bar{J}_x = 0.19$), while Cone Helix shows growing state cost as the orbital radius expands ($\bar{J}_x = 2.73$).
+The MPC cost decomposition provides a diagnostic: trajectories within the linearisation region show declining state cost after the initial transient (Straight 3D: $`\bar{J}_x = 0.19`$), while Cone Helix shows growing state cost as the orbital radius expands ($`\bar{J}_x = 2.73`$).
 
 <p align="center">
   <img src="../report/fig6_euler_maxangle.png" width="80%"/>
