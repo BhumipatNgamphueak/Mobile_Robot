@@ -8,20 +8,126 @@
 
 ## Table of Contents
 
-1. [Overview](#1-overview)
-2. [System Architecture](#2-system-architecture)
-3. [Kinematics and Dynamics](#3-kinematics-and-dynamics)
-4. [Controller Design](#4-controller-design)
-5. [State Estimation](#5-state-estimation)
-6. [Trajectory Design](#6-trajectory-design)
-7. [Experimental Setup](#7-experimental-setup)
-8. [Results](#8-results)
-9. [Discussion and Analysis](#9-discussion-and-analysis)
-10. [References](#10-references)
+1. [Setup](#1-setup)
+2. [Overview](#2-overview)
+3. [System Architecture](#3-system-architecture)
+4. [Kinematics and Dynamics](#4-kinematics-and-dynamics)
+5. [Controller Design](#5-controller-design)
+6. [State Estimation](#6-state-estimation)
+7. [Trajectory Design](#7-trajectory-design)
+8. [Experimental Setup](#8-experimental-setup)
+9. [Results](#9-results)
+10. [Discussion and Analysis](#10-discussion-and-analysis)
+11. [References](#11-references)
 
 ---
 
-## 1. Overview
+## 1. Setup
+
+### Prerequisites
+
+- Ubuntu 22.04
+- [ROS 2 Humble](https://docs.ros.org/en/humble/Installation.html)
+- [Ignition Gazebo Fortress 6.17.0](https://gazebosim.org/docs/fortress/install_ubuntu)
+- Python 3.10+
+
+### Installation
+
+**1. Clone the Repository**
+
+```bash
+git clone https://github.com/fibo-github-classroom/fra532-lab2-control-prime-athit.git -b lab2
+cd ~/Mobile_Robot
+```
+
+**2. Install ROS 2 Dependencies**
+
+```bash
+sudo apt update
+sudo apt install -y ros-humble-ros-gz-bridge ros-humble-actuator-msgs ros-humble-xacro
+rosdep install --from-paths src --ignore-src -r -y
+```
+
+**3. Install Python Dependencies**
+
+```bash
+pip3 install numpy scipy pandas matplotlib
+```
+
+**4. Build the Workspace**
+
+```bash
+cd ~/Mobile_Robot
+colcon build --symlink-install
+```
+
+**5. Source the Environment**
+
+```bash
+source install/setup.bash
+```
+
+**6. (Optional) Auto-source on every new terminal**
+
+```bash
+echo "source ~/Mobile_Robot/install/setup.bash" >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Running the Experiments
+
+Two terminals are required for each run.
+
+**Part 1 — Hover**
+
+```bash
+# Terminal 1 — Simulation
+ros2 launch quad_description sim.launch.py                  # no wind
+ros2 launch quad_description sim.launch.py world:=wind      # 4 m/s in −y
+
+# Terminal 2 — Controller + data collection
+ros2 launch quad_controller controller.launch.py \
+    trajectory_type:=hover traj_duration:=10.0 \
+    collect_data:=true collect_duration:=20.0
+# For wind runs, add: wind_y:=-4.0
+```
+
+**Part 2 — 2D Trajectory Tracking**
+
+```bash
+# Terminal 2 — pick one trajectory
+ros2 launch quad_controller controller.launch.py \
+    trajectory_type:=sine_2d traj_duration:=30.0 \
+    collect_data:=true collect_duration:=40.0
+```
+
+**Part 3 — 3D Trajectory Tracking**
+
+```bash
+# Terminal 2 — pick one trajectory
+ros2 launch quad_controller controller.launch.py \
+    trajectory_type:=helix traj_duration:=30.0 \
+    collect_data:=true collect_duration:=40.0
+```
+
+**Trajectory types:** `hover`, `straight_2d`, `sine_2d`, `step_2d`, `lemniscate_2d`, `circle_2d`, `straight_3d`, `helix`, `figure8_3d`, `cone_helix`, `lissajous_3d`
+
+### Data Output
+
+Each run produces data in `data/<trajectory>_<timestamp>/`:
+- `state_data.csv`, `control_data.csv` — time-series logs
+- `metrics.csv` — scalar performance summary (RMSE, settling time, motor utilisation)
+- 12 diagnostic plots
+
+Cross-experiment comparison figures: `report/`
+
+```bash
+python3 compare_experiments.py   # regenerate comparison figures
+```
+
+---
+
+## 2. Overview
 
 This laboratory implements a **Model Predictive Controller (MPC)** for a simulated quadrotor UAV to achieve stable hover and trajectory tracking in both disturbance-free and wind-disturbed environments. The simulation is built on **ROS 2** with **Ignition Gazebo Fortress (6.17.0)**, using the `quad_description` package to provide the physical robot model and world definitions.
 
@@ -48,56 +154,23 @@ Wind disturbance rejection is achieved through an **integral action** term appen
 | State estimation | Custom EKF node |
 | Bridge | `ros_gz_bridge` |
 
-### Quick Start
-
-```bash
-# Source workspace (run in every terminal)
-cd ~/Mobile_Robot && source install/setup.bash
-
-# Terminal 1 — Simulation (choose one)
-ros2 launch quad_description sim.launch.py                  # no wind
-ros2 launch quad_description sim.launch.py world:=wind      # 4 m/s in −y
-
-# Terminal 2 — Controller + data collection
-ros2 launch quad_controller controller.launch.py \
-    trajectory_type:=<TYPE> traj_duration:=10.0 \
-    collect_data:=true collect_duration:=20.0
-
-# For wind runs, add: wind_y:=-4.0
-```
-
-**Trajectory types:** `hover`, `straight_2d`, `sine_2d`, `step_2d`, `lemniscate_2d`, `circle_2d`, `straight_3d`, `helix`, `figure8_3d`, `cone_helix`, `lissajous_3d`
-
-### Data Output
-
-Each run produces data in `data/<trajectory>_<timestamp>/`:
-- `state_data.csv`, `control_data.csv` — time-series logs
-- `metrics.csv` — scalar performance summary (RMSE, settling time, motor utilisation)
-- 12 diagnostic plots
-
-Cross-experiment comparison figures: `report/`
-
-```bash
-python3 compare_experiments.py   # regenerate comparison figures
-```
-
 ---
 
-## 2. System Architecture
+## 3. System Architecture
 
-### 2.1 Control Block Diagram
+### 3.1 Control Block Diagram
 
 <p align="center">
   <img src="block_diagram.png" width="90%"/>
 </p>
 
-### 2.2 ROS 2 Node Graph
+### 3.2 ROS 2 Node Graph
 
 <p align="center">
   <img src="system_architecture.png" width="90%"/>
 </p>
 
-### 2.3 Topic Summary
+### 3.3 Topic Summary
 
 | Topic | Message Type | QoS | Description |
 |-------|-------------|-----|-------------|
@@ -109,7 +182,7 @@ python3 compare_experiments.py   # regenerate comparison figures
 | `/motor_commands` | `actuator_msgs/Actuators` | RELIABLE | Rotor speeds $`[\omega_0, \omega_1, \omega_2, \omega_3]`$ at 50 Hz |
 | `/mpc_debug` | `std_msgs/Float64MultiArray` | RELIABLE | 19-field MPC internal telemetry at 50 Hz |
 
-### 2.4 Package Structure
+### 3.4 Package Structure
 
 ```
 quad_controller/
@@ -126,16 +199,16 @@ quad_controller/
 
 ---
 
-## 3. Kinematics and Dynamics
+## 4. Kinematics and Dynamics
 
-### 3.1 Reference Frames
+### 4.1 Reference Frames
 
 Two frames are used throughout:
 
 - **World frame** $\lbrace W\rbrace$: inertial, East-North-Up (ENU), fixed to the Gazebo origin.
 - **Body frame** $\lbrace B\rbrace$: attached to the centre of mass of the quadrotor, $z$-axis pointing upward through the propeller disc plane.
 
-### 3.2 State Vector
+### 4.2 State Vector
 
 The 12-dimensional state vector is defined as:
 
@@ -150,7 +223,7 @@ $$R = R_z(\psi)\,R_x(\phi)\,R_y(\theta)$$
 
 which yields the parametrisation used by `scipy.spatial.transform.Rotation.as_euler('zxy')`.
 
-### 3.3 Rigid Body Dynamics
+### 4.3 Rigid Body Dynamics
 
 Applying Newton-Euler equations to the quadrotor:
 
@@ -175,7 +248,7 @@ $$\boldsymbol{\tau} = [\tau_\phi, \tau_\theta, \tau_\psi]^\top$$
 
 is the body torque.
 
-### 3.4 Motor Model
+### 4.4 Motor Model
 
 Each rotor $i$ produces:
 
@@ -187,7 +260,7 @@ and $d_i \in \lbrace+1, -1\rbrace$ is the spinning direction (CCW = $+1$, CW = $
 
 The effective yaw coefficient is $`\kappa = k_F k_M = 5.129 \times 10^{-7}\ \mathrm{N \cdot m/(rad/s)}^2`$.
 
-### 3.5 Motor Layout and Allocation Matrix
+### 4.5 Motor Layout and Allocation Matrix
 
 Rotor positions and directions (from `quadrotor_base.xacro`):
 
@@ -208,7 +281,7 @@ Motor speeds are recovered by $\boldsymbol{\omega}^2 = \mathbf{A}^{-1} \mathbf{u
 
 $$\mathbf{u} = [T, \tau_\phi, \tau_\theta, \tau_\psi]^\top$$
 
-### 3.6 Linearisation around Hover
+### 4.6 Linearisation around Hover
 
 At the hover equilibrium $`\mathbf{x}_0 = \mathbf{0}_{12}`$,
 $\mathbf{u}_0 = [mg, 0, 0, 0]^\top$,
@@ -232,7 +305,7 @@ The system is discretised at $\Delta t = 0.02$ s using zero-order hold (ZOH):
 
 $$\mathbf{x}_{k+1} = A_d\,\mathbf{x}_k + B_d\,\mathbf{u}_k$$
 
-### 3.7 Assumptions
+### 4.7 Assumptions
 
 The following assumptions are made throughout this laboratory:
 
@@ -246,9 +319,9 @@ The following assumptions are made throughout this laboratory:
 
 ---
 
-## 4. Controller Design
+## 5. Controller Design
 
-### 4.1 MPC Problem Formulation
+### 5.1 MPC Problem Formulation
 
 The MPC minimises a finite-horizon quadratic cost over a prediction horizon $N = 20$ steps at $\Delta t = 0.02$ s (0.4 s lookahead):
 
@@ -273,7 +346,7 @@ $$R = \text{diag}(\underbrace{0.01}_{T},\ \underbrace{0.1,0.1,0.1}_{\tau_\phi,\t
 
 Position is weighted highest to prioritise tracking; attitude and velocity provide damping; the low thrust weight allows large thrust excursions to maintain altitude. Torques are penalised 10× more than thrust because attitude aggressiveness is the primary source of linearisation breakdown.
 
-### 4.2 Batch-Form Prediction Matrices
+### 5.2 Batch-Form Prediction Matrices
 
 The predicted state sequence over the full horizon is expressed as a linear function of the current state $`\mathbf{x}_0`$ and the stacked control sequence
 
@@ -297,7 +370,7 @@ The lower-triangular structure captures causality: input at step $j$ only influe
 $\bar{Q} = I_N \otimes Q$ and
 $\bar{R} = I_N \otimes R$.
 
-### 4.3 Closed-Form Optimal Gain Computation
+### 5.3 Closed-Form Optimal Gain Computation
 
 Substituting $\mathbf{X} = \Phi\mathbf{x}_0 + \Gamma\mathbf{U}$ into the quadratic cost and setting $\partial J/\partial \mathbf{U} = 0$:
 
@@ -318,10 +391,10 @@ $+\mathbf{X}_{\mathrm{ref}}$. Once computed offline, the optimal perturbation co
 
 $$\mathbf{u}_\delta = K_r\,\mathbf{X}_{\text{ref}} + K_x\,\mathbf{x}_0^h$$
 
-where $`\mathbf{X}_{\mathrm{ref}} = \mathbf{1}_N \otimes \mathbf{x}_{\mathrm{ref}}^h`$ (reference tiled $N$ times) and $\mathbf{x}_0^h$ is the heading-frame state (Section 4.5).
+where $`\mathbf{X}_{\mathrm{ref}} = \mathbf{1}_N \otimes \mathbf{x}_{\mathrm{ref}}^h`$ (reference tiled $N$ times) and $\mathbf{x}_0^h$ is the heading-frame state (Section 5.5).
 The online computation is two matrix-vector products — no QP solver is invoked — guaranteeing a **100% solve rate** and deterministic 50 Hz execution. The matrix inversion $H^{-1}$ is feasible because the problem is unconstrained; hard rotor limits are enforced post-hoc by the thrust-priority allocator.
 
-### 4.4 Online Control Loop
+### 5.4 Online Control Loop
 
 Each 50 Hz control tick executes five sequential steps:
 
@@ -349,15 +422,15 @@ $$
 $$
 
 **Step 4 — Integral action** (if $z > 0.15$ m):
-The wind-rejection integrator is updated and its correction added (see Section 4.7):
+The wind-rejection integrator is updated and its correction added (see Section 5.7):
 
 $$\mathbf{u}_{\text{total}} \mathrel{+}= \mathbf{u}_I$$
 
 **Step 5 — Thrust-priority motor allocation.**
-$\mathbf{u}_{\mathrm{total}}$ is inverted to rotor speeds; if saturation occurs a binary search scales torques while preserving thrust (see Section 4.6).
+$\mathbf{u}_{\mathrm{total}}$ is inverted to rotor speeds; if saturation occurs a binary search scales torques while preserving thrust (see Section 5.6).
 Rotor speeds $`[\omega_0, \omega_1, \omega_2, \omega_3]`$ are published to `/motor_commands`.
 
-### 4.5 Yaw Compensation
+### 5.5 Yaw Compensation
 
 The hover linearisation derives $\ddot{x} \approx g\theta$ and $\ddot{y} \approx -g\phi$ by expanding
 $R_{WB}\,[0,0,T/m]^\top$ at $\phi=\theta=\psi=0$.
@@ -367,7 +440,7 @@ Feeding world-frame position error directly into $`K_r`$, $`K_x`$ would therefor
 By rotating both $`\mathbf{x}_0`$ and $`\mathbf{x}_{\mathrm{ref}}`$ into the heading frame first, the MPC always operates in a virtual frame where the drone's nose points along $+x$.
 The output torques $`[\tau_\phi,\tau_\theta]`$ are body-frame quantities in that virtual frame, which coincides with the actual body frame — so no additional back-rotation is needed before commanding motors.
 
-### 4.6 Motor Allocation with Thrust Priority
+### 5.6 Motor Allocation with Thrust Priority
 
 The allocation matrix $\mathbf{A}$ maps squared rotor speeds to wrench:
 
@@ -391,7 +464,7 @@ $$\mathbf{u}_{\text{final}} = \mathbf{u}_T + \lambda^*\,\mathbf{u}_\tau$$
 
 The **torque scale** $\lambda^\ast$ (field `[12]` of `/mpc_debug`) indicates saturation severity: $\lambda^\ast = 1.0$ = full torque authority, $\lambda^\ast < 1.0$ = torques sacrificed to preserve altitude. Thrust is always protected because position control (altitude) takes priority over attitude tracking.
 
-### 4.7 Integral Action for Wind Rejection
+### 5.7 Integral Action for Wind Rejection
 
 The proportional MPC has no internal model of constant disturbances: a persistent aerodynamic offset shifts the equilibrium point and manifests as a steady-state position error that the MPC cannot cancel. An **integral action** is therefore appended to accumulate the persistent error and generate a corrective bias.
 
@@ -415,11 +488,11 @@ $$\mathbf{u}_{\text{total}} = \underbrace{[mg,\,0,\,0,\,0]^\top}_{\text{hover fe
 
 ---
 
-## 5. State Estimation
+## 6. State Estimation
 
 An **Extended Kalman Filter (EKF)** running at 100 Hz fuses IMU and odometry data into a clean 12-state estimate consumed by the MPC. The EKF uses **nonlinear dynamics for state propagation** but a **simplified linearised Jacobian for covariance propagation** — capturing the dominant couplings efficiently without computing the full nonlinear Jacobian.
 
-### 5.1 Nonlinear State Prediction
+### 6.1 Nonlinear State Prediction
 
 At each 100 Hz prediction tick, the EKF propagates the full nonlinear equations of motion using the most recently received wrench $`[T,\tau_\phi,\tau_\theta,\tau_\psi]`$ from `/control_wrench`.
 
@@ -431,9 +504,9 @@ $$
 \dot{\mathbf{v}} = R_{WB}(\phi,\theta,\psi)\begin{bmatrix} 0 \\ 0 \\ T/m \end{bmatrix} + \begin{bmatrix} 0 \\ 0 \\ -g \end{bmatrix}
 $$
 
-where $R_{WB}$ is the ZXY rotation matrix defined in Section 3.2.
+where $R_{WB}$ is the ZXY rotation matrix defined in Section 4.2.
 
-**Euler-angle kinematics:** The exact ZXY kinematic equations from Section 3.3 are used (not the small-angle approximation). A small-$\epsilon$ guard is applied to $\cos\theta$ to prevent singularity near $\theta = \pm90°$.
+**Euler-angle kinematics:** The exact ZXY kinematic equations from Section 4.3 are used (not the small-angle approximation). A small-$\epsilon$ guard is applied to $\cos\theta$ to prevent singularity near $\theta = \pm90°$.
 
 **Angular acceleration — Euler equations with gyroscopic coupling:**
 
@@ -445,7 +518,7 @@ $$\dot{r} = \frac{\tau_\psi}{I_{zz}} + \frac{(I_{xx}-I_{yy})}{I_{zz}}\,pq$$
 
 The gyroscopic cross-product terms $(qr,\, pr,\, pq)$ couple the three angular rates. All equations are integrated with **forward Euler** at $\Delta t = 0.01$ s.
 
-### 5.2 Linearised Jacobian for Covariance Propagation
+### 6.2 Linearised Jacobian for Covariance Propagation
 
 Rather than computing the full nonlinear Jacobian $\partial f/\partial\mathbf{x}$ (which involves partial derivatives of $R_{WB}$ and gyroscopic terms), the EKF uses a **simplified Jacobian** retaining only the dominant linear couplings:
 
@@ -463,7 +536,7 @@ Note that the $`I_3`$ blocks for angle-rate coupling use the small-angle approxi
 
 $$P_{k|k-1} = F_d\,P_{k-1}\,F_d^\top + Q_{\text{proc}}$$
 
-### 5.3 Measurement Update
+### 6.3 Measurement Update
 
 Two sensors trigger independent asynchronous EKF updates:
 
@@ -500,7 +573,7 @@ $$P_k = (I - KH)\,P_{k|k-1}\,(I - KH)^\top + K\,R\,K^\top$$
 The **Joseph form** is used instead of the standard $(I-KH)P_{k \mid k-1}$ form to guarantee
 $P_k$ remains symmetric positive semi-definite under floating-point accumulation errors, providing long-term numerical stability.
 
-### 5.4 EKF Noise Parameters
+### 6.4 EKF Noise Parameters
 
 | Parameter | Symbol | Value | Rationale |
 |-----------|--------|-------|-----------|
@@ -516,7 +589,7 @@ $P_k$ remains symmetric positive semi-definite under floating-point accumulation
 
 ---
 
-## 6. Trajectory Design
+## 7. Trajectory Design
 
 All trajectories follow a three-phase sequence:
 
@@ -527,7 +600,7 @@ PRE_HOVER (5 s) ──► FLYING (traj_duration) ──► POST_HOVER
 
 Reference yaw is fixed at $\psi_{\text{ref}} = 0$ for all trajectories to preserve MPC linearisation validity.
 
-### 6.1 Part 2 — 2D Trajectories (x-z plane, $y = 0$)
+### 7.1 Part 2 — 2D Trajectories (x-z plane, $y = 0$)
 
 #### Straight Line (`straight_2d`)
 
@@ -559,7 +632,7 @@ $$x(t) = R\sin(\omega t), \quad y = 0, \quad z(t) = z_0 + R(1 - \cos(\omega t))$
 
 with $R = 0.5$ m, $f = 0.2$ Hz. Hann-window amplitude ramp over the first period ensures zero initial velocity.
 
-### 6.2 Part 3 — 3D Trajectories
+### 7.2 Part 3 — 3D Trajectories
 
 #### Straight Line (`straight_3d`)
 
@@ -605,16 +678,16 @@ with $R = 0.5$ m, $A = 0.3$ m, $f = 0.2$ Hz. Peak velocity $R\omega = 0.63$ m/s,
 
 ---
 
-## 7. Experimental Setup
+## 8. Experimental Setup
 
-### 7.1 Test Environments
+### 8.1 Test Environments
 
 | Environment | World File | Wind |
 |-------------|-----------|------|
 | No wind | `empty.sdf` | None |
 | Wind | `wind.sdf` | 4 m/s in $-y$ direction (`WindEffects` plugin) |
 
-### 7.2 Run Matrix
+### 8.2 Run Matrix
 
 | Part | Trajectory | No wind | Wind |
 |------|-----------|---------|------|
@@ -630,7 +703,7 @@ with $R = 0.5$ m, $A = 0.3$ m, $f = 0.2$ Hz. Peak velocity $R\omega = 0.63$ m/s,
 | 3 | cone\_helix | ✓ | ✓ |
 | 3 | lissajous\_3d | ✓ | ✓ |
 
-### 7.3 Data Collection
+### 8.3 Data Collection
 
 A dedicated `data_collector` node subscribes passively to all control and state topics and on shutdown produces:
 
@@ -639,7 +712,7 @@ A dedicated `data_collector` node subscribes passively to all control and state 
 - `metrics.csv` — scalar summary (RMSE, settling time, motor utilisation, MPC cost, etc.)
 - 11 diagnostic plots (position tracking, velocity tracking, 3D trajectory, position error, control wrench, motor speeds, Euler angles, motor utilisation histogram, MPC cost decomposition, wrench decomposition, torque scale, integral error)
 
-### 7.4 Launch Commands
+### 8.4 Launch Commands
 
 ```bash
 # Source workspace (run in every terminal)
@@ -660,7 +733,7 @@ ros2 launch quad_controller controller.launch.py \
 
 ---
 
-## 8. Results
+## 9. Results
 
 All simulation runs (11 trajectory types × 2 wind environments) were conducted on 2026-03-08 using **trajectory preview** (N=20 step lookahead).
 Raw data files are in `data/<trajectory>_<timestamp>/` and cross-experiment comparison figures are in `report/`.
@@ -675,7 +748,7 @@ Raw data files are in `data/<trajectory>_<timestamp>/` and cross-experiment comp
 
 ---
 
-### 8.1 Part 1 — Hover
+### 9.1 Part 1 — Hover
 
 All metrics are evaluated over the FLYING phase only (after the 5 s pre-hover stabilisation period).
 
@@ -702,7 +775,7 @@ The integral action drives the residual y-offset down under wind. Under wind, ro
 
 ---
 
-### 8.2 Part 2 — 2D Trajectory Tracking
+### 9.2 Part 2 — 2D Trajectory Tracking
 
 All trajectories fly in the x-z plane (`traj_plane=xz`). Reference yaw is fixed at $\psi_{\text{ref}} = 0$.
 
@@ -742,7 +815,7 @@ All trajectories fly in the x-z plane (`traj_plane=xz`). Reference yaw is fixed 
 
 ---
 
-### 8.3 Part 3 — 3D Trajectory Tracking
+### 9.3 Part 3 — 3D Trajectory Tracking
 
 #### Representative: Helix Spiral
 
@@ -796,7 +869,7 @@ The $y(t) = R\sin(2\omega t)$ component at $2\omega = 2.51$ rad/s with $R = 0.5$
 
 ---
 
-### 8.4 MPC Internal Metrics
+### 9.4 MPC Internal Metrics
 
 <table>
   <tr>
@@ -819,7 +892,7 @@ All experiments achieved **100% MPC solve rate** and **zero torque-scale events*
 
 ---
 
-### 8.5 Prediction Horizon Comparison (with Trajectory Preview)
+### 9.5 Prediction Horizon Comparison (with Trajectory Preview)
 
 To quantify the effect of the MPC prediction horizon $N$ on tracking performance, the **cone helix** trajectory was re-run with six different horizon lengths: $N \in \lbrace 1,\, 5,\, 20,\, 50,\, 100,\, 250 \rbrace$ steps, corresponding to lookahead windows of 0.02 s to 5.0 s. All runs use the no-wind environment with identical Q/R weights.
 
@@ -908,9 +981,9 @@ All experiments use **trajectory preview**: the trajectory generator publishes t
 
 ---
 
-## 9. Discussion and Analysis
+## 10. Discussion and Analysis
 
-### 9.1 Linearisation Validity
+### 10.1 Linearisation Validity
 
 All experiments remain within the ±15° linearisation bound **except** Lissajous 3D (max roll 20.5°–22.9°). The boundary-approaching cases are Figure-8 3D (max roll 8.8°–10.8°) and Cone Helix (max pitch 8.3°–8.4°), where the linearisation error $\sin\theta - \theta$ is approximately 0.4–1.3%.
 
@@ -922,7 +995,7 @@ The MPC cost decomposition provides a diagnostic: trajectories within the linear
 
 > **Figure 8** — Maximum roll and pitch across all trajectories vs the ±15° linearisation validity boundary (dashed red). All experiments except Lissajous 3D remain within the valid region.
 
-### 9.2 Tracking Error Hierarchy
+### 10.2 Tracking Error Hierarchy
 
 With trajectory preview enabled, RMSE increases monotonically with trajectory complexity:
 
@@ -940,7 +1013,7 @@ The trajectory preview eliminates the dominant error source from the constant-re
 
 > **Figure 9** — Max roll angle vs RMSE. The strong positive correlation quantifies the linearisation-degradation mechanism. Lissajous 3D (✗) breaks the trend by operating beyond the valid model region.
 
-### 9.3 Wind Disturbance Rejection
+### 10.3 Wind Disturbance Rejection
 
 Without integral action, the proportional MPC cannot reject a constant aerodynamic offset — a constant wind force shifts the equilibrium point, and the finite-horizon optimisation cannot generate a non-zero corrective roll at steady state without incurring an input penalty for zero incremental benefit.
 
@@ -949,19 +1022,19 @@ The integral action resolves this by accumulating the position offset and inject
 - **Straight-line trajectories:** Partial to full rejection (20–96%) depending on the $y$-component of flight direction.
 - **Lissajous 3D (outside linearisation):** Partial rejection only — the linearisation error makes the integral correction itself model-inaccurate.
 
-### 9.4 Limitations and Future Work
+### 10.4 Limitations and Future Work
 
-1. **Trajectory preview (implemented):** The full N-step predicted reference trajectory is now published by the trajectory generator and consumed by the MPC. As demonstrated in Section 8.5, this eliminates the systematic phase lag on orbital trajectories — reducing cone helix RMSE from 0.94 m to 0.060 m and ensuring 100% linearisation validity.
+1. **Trajectory preview (implemented):** The full N-step predicted reference trajectory is now published by the trajectory generator and consumed by the MPC. As demonstrated in Section 9.5, this eliminates the systematic phase lag on orbital trajectories — reducing cone helix RMSE from 0.94 m to 0.060 m and ensuring 100% linearisation validity.
 
 2. **Linearisation domain:** A gain-scheduled MPC or iterative LQR (iLQR) approach would remove the ±15° restriction at the cost of increased computation.
 
 3. **Integral anti-windup:** The integrator does not distinguish wind disturbance from tracking-lag error, causing small DC biases on orbital trajectories even without wind. A conditional integration scheme would eliminate this artefact.
 
-4. **Horizon length:** With trajectory preview, the 20-step (0.4 s) horizon achieves excellent tracking for all trajectories within the linearisation bound. Longer horizons (N=50–100) provide marginal improvement as shown in Section 8.5.
+4. **Horizon length:** With trajectory preview, the 20-step (0.4 s) horizon achieves excellent tracking for all trajectories within the linearisation bound. Longer horizons (N=50–100) provide marginal improvement as shown in Section 9.5.
 
 ---
 
-## 10. References
+## 11. References
 
 1. Coursera Robotics Specialization: Aerial Robotics — Prof. Vijay Kumar, University of Pennsylvania.
 2. Lab material: [Formulation](src/material/2C-1-Formulation.pdf) — Coordinate systems, motor model, rotation matrix, forces and moments.
