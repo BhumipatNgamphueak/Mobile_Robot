@@ -1,58 +1,3 @@
-"""
-controller.launch.py
-====================
-Launches the full quad_controller stack:
-  1. ekf_node              -- state estimator (IMU + odom fusion)
-  2. mpc_controller        -- linearised MPC setpoint tracker
-  3. trajectory_generator  -- waypoint -> smooth reference state
-
-All nodes load their parameters from config/params.yaml so gains can be
-changed without recompiling.
-
-All nodes use use_sim_time=True so timers are synchronised with the
-Gazebo /clock topic published via the ros_gz_bridge.
-
-Launch arguments
-----------------
-  trajectory_type   One of:
-                      hover
-                      straight_2d | sine_2d | step_2d          (Part 2 — 2D)
-                      lemniscate_2d | circle_2d                 (Part 2 — MPC showcase)
-                      straight_3d | helix | figure8_3d          (Part 3 — 3D)
-                      cone_helix | lissajous_3d                 (Part 3 — MPC showcase)
-                    Default: hover
-  traj_plane        '2D plane selection: xz (altitude, default) or xy (horizontal)
-  hover_time        Seconds to hold hover before flying trajectory  (default 5.0)
-  traj_duration     Seconds to fly trajectory before returning to hover
-                    0 = fly forever  (default 0)
-  traj_accel        Acceleration for straight-line ramp [m/s²]; 0 = instant
-                    (default 0.5)
-  wind_x/y/z        Wind vector for RViz arrow visualisation  (default 0 0 0)
-  collect_data      Enable data collection & analysis node  (default false)
-  collect_duration  Data collection duration in seconds (0 = auto on POST_HOVER)
-
-Usage
------
-  # Part 1 — hover
-  ros2 launch quad_controller controller.launch.py trajectory_type:=hover collect_data:=true collect_duration:=15.0
-
-  # Part 2 — 2D (x-z plane, 10 s each)
-  ros2 launch quad_controller controller.launch.py trajectory_type:=straight_2d traj_duration:=10.0 collect_data:=true
-  ros2 launch quad_controller controller.launch.py trajectory_type:=sine_2d     traj_duration:=10.0 collect_data:=true
-  ros2 launch quad_controller controller.launch.py trajectory_type:=lemniscate_2d traj_duration:=10.0 collect_data:=true
-
-  # Part 2 — x-y plane variant
-  ros2 launch quad_controller controller.launch.py trajectory_type:=lemniscate_2d traj_plane:=xy traj_duration:=10.0 collect_data:=true
-
-  # Part 3 — 3D (10 s each)
-  ros2 launch quad_controller controller.launch.py trajectory_type:=straight_3d  traj_duration:=10.0 collect_data:=true
-  ros2 launch quad_controller controller.launch.py trajectory_type:=helix         traj_duration:=10.0 collect_data:=true
-  ros2 launch quad_controller controller.launch.py trajectory_type:=lissajous_3d  traj_duration:=10.0 collect_data:=true
-
-  # With wind (add to any command above)
-  ros2 launch quad_controller controller.launch.py trajectory_type:=lemniscate_2d traj_duration:=10.0 wind_y:=-4.0 collect_data:=true
-"""
-
 import os
 from ament_index_python.packages import get_package_share_directory
 
@@ -67,9 +12,6 @@ def generate_launch_description():
     pkg = get_package_share_directory('quad_controller')
     params_file = os.path.join(pkg, 'config', 'params.yaml')
 
-    # ------------------------------------------------------------------ #
-    # Launch arguments
-    # ------------------------------------------------------------------ #
     traj_type_arg = DeclareLaunchArgument(
         'trajectory_type',
         default_value='hover',
@@ -132,9 +74,6 @@ def generate_launch_description():
     collect_data     = LaunchConfiguration('collect_data')
     collect_duration = LaunchConfiguration('collect_duration')
 
-    # ------------------------------------------------------------------ #
-    # EKF state estimator  (fuses IMU + odom, publishes /state_estimate)
-    # ------------------------------------------------------------------ #
     ekf_node = Node(
         package='quad_controller',
         executable='ekf_node.py',
@@ -143,9 +82,6 @@ def generate_launch_description():
         parameters=[params_file, {'use_sim_time': True}],
     )
 
-    # ------------------------------------------------------------------ #
-    # MPC controller  (reads /state_estimate from EKF)
-    # ------------------------------------------------------------------ #
     mpc_node = Node(
         package='quad_controller',
         executable='mpc_controller.py',
@@ -159,11 +95,6 @@ def generate_launch_description():
         }],
     )
 
-    # ------------------------------------------------------------------ #
-    # Trajectory generator
-    # trajectory_type, hover_time, traj_duration are overridden here so
-    # ros2 launch arguments take precedence over params.yaml defaults.
-    # ------------------------------------------------------------------ #
     traj_node = Node(
         package='quad_controller',
         executable='trajectory_generator.py',
@@ -183,9 +114,6 @@ def generate_launch_description():
         ],
     )
 
-    # ------------------------------------------------------------------ #
-    # Data collector (optional -- enabled with collect_data:=true)
-    # ------------------------------------------------------------------ #
     data_node = Node(
         package='quad_controller',
         executable='data_collector.py',

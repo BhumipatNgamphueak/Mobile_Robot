@@ -1,50 +1,4 @@
 #!/usr/bin/env python3
-"""
-MPC Data Collector & Analyser for Quadrotor
-=============================================
-Passive ROS 2 observer that records flight data, then on shutdown
-produces CSV files, matplotlib plots, and a console metrics summary
-suitable for a rigorous lab report.
-
-Subscribes to
---------------
-  /state_estimate   (Odometry)           EKF fused state
-  /reference_state  (Float64MultiArray)  Trajectory reference
-  /control_wrench   (Float64MultiArray)  MPC wrench [T,τφ,τθ,τψ]
-  /motor_commands   (Actuators)          Rotor speeds
-  /imu              (Imu)                Raw IMU
-  /odom             (Odometry)           Raw Gazebo odometry
-  /mpc_debug        (Float64MultiArray)  MPC internals (19 fields)
-
-Output (saved on Ctrl-C or collect_duration timeout)
------------------------------------------------------
-  ~/Mobile_Robot/data/<traj>_<timestamp>/
-    state_data.csv          aligned state + reference + error
-    control_data.csv        wrench + motor speeds + MPC debug
-    metrics.csv             summary key-value
-    3d_trajectory.png
-    position_tracking.png
-    velocity_tracking.png
-    position_error.png
-    control_wrench.png
-    motor_speeds.png
-    euler_angles.png
-    motor_utilization.png
-    mpc_cost.png            (if /mpc_debug available)
-    wrench_decomposition.png
-    torque_scale.png
-    integral_error.png
-
-Usage
------
-  # standalone
-  ros2 run quad_controller data_collector.py \\
-      --ros-args -p use_sim_time:=true -p trajectory_type:=helix
-
-  # via launch (recommended)
-  ros2 launch quad_controller controller.launch.py \\
-      trajectory_type:=helix collect_data:=true collect_duration:=30.0
-"""
 
 import os
 import datetime
@@ -52,9 +6,9 @@ import numpy as np
 import pandas as pd
 
 import matplotlib
-matplotlib.use('Agg')          # headless backend -- no display needed
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (registers 3-D projection)
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 from scipy.spatial.transform import Rotation
 from pathlib import Path
@@ -71,39 +25,28 @@ from std_msgs.msg import Float64MultiArray, Int32
 from actuator_msgs.msg import Actuators
 
 
-# ---------------------------------------------------------------------------
-# Physical constants (must match params.yaml / URDF)
-# ---------------------------------------------------------------------------
 MASS            = 1.5
 GRAVITY         = 9.81
-HOVER_THRUST    = MASS * GRAVITY          # 14.715 N
+HOVER_THRUST    = MASS * GRAVITY
 IXX, IYY, IZZ  = 0.0347563, 0.07, 0.0977
 KF              = 8.54858e-06
 KM              = 0.06
-MAX_ROTOR_SPEED = 1500.0                  # rad/s
-HOVER_OMEGA     = np.sqrt(HOVER_THRUST / (4.0 * KF))  # ≈ 656 rad/s
+MAX_ROTOR_SPEED = 1500.0
+HOVER_OMEGA     = np.sqrt(HOVER_THRUST / (4.0 * KF))
 
-# Linearisation validity threshold (degrees)
 LIN_LIMIT_DEG   = 15.0
 LIN_LIMIT_RAD   = np.radians(LIN_LIMIT_DEG)
 
 
-# ---------------------------------------------------------------------------
-# Helper -- extract seconds from ROS stamp
-# ---------------------------------------------------------------------------
 def _stamp_sec(stamp):
     return stamp.sec + stamp.nanosec * 1e-9
 
 
-# ===================================================================
-# Main node
-# ===================================================================
 class DataCollectorNode(Node):
 
     def __init__(self):
         super().__init__('data_collector')
 
-        # ---- parameters ----
         self.declare_parameter('collect_duration',  0.0)
         self.declare_parameter('output_dir',
                                os.path.expanduser('~/Mobile_Robot/data'))
@@ -121,7 +64,6 @@ class DataCollectorNode(Node):
             self.get_parameter('wind_z').value,
         )
 
-        # ---- data buffers (list-of-dicts, turned into DataFrames later) ----
         self._state_buf  = []
         self._ref_buf    = []
         self._wrench_buf = []
@@ -130,17 +72,13 @@ class DataCollectorNode(Node):
         self._odom_buf   = []
         self._debug_buf  = []
 
-        self._t0       = None      # first timestamp (seconds, reset at FLYING start)
+        self._t0       = None
         self._shutdown_done = False
         self._prev_phase = -1
 
-        # Recording gate: for hover-only experiments start immediately;
-        # for trajectory experiments wait for FLYING phase signal so we
-        # don't pollute the dataset with hover stabilisation data.
         self._recording = (self._traj == 'hover')
-        self._duration_timer = None  # created when FLYING phase begins
+        self._duration_timer = None
 
-        # ---- QoS profiles (must match publishers) ----
         reliable_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
             history=QoSHistoryPolicy.KEEP_LAST, depth=10)
@@ -148,7 +86,6 @@ class DataCollectorNode(Node):
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
             history=QoSHistoryPolicy.KEEP_LAST, depth=1)
 
-        # ---- subscriptions ----
         self.create_subscription(
             Odometry, '/state_estimate', self._state_cb, reliable_qos)
         self.create_subscription(
@@ -163,16 +100,11 @@ class DataCollectorNode(Node):
             Odometry, '/odom', self._odom_cb, sensor_qos)
         self.create_subscription(
             Float64MultiArray, '/mpc_debug', self._debug_cb, reliable_qos)
-        # Phase signal from trajectory_generator — gates when recording starts/stops
         self.create_subscription(
             Int32, '/trajectory_phase', self._phase_cb, reliable_qos)
 
-        # Wall clock for duration timer — avoids premature firing when
-        # use_sim_time=True but Gazebo hasn't published /clock yet.
         self._wall_clock = Clock(clock_type=ClockType.STEADY_TIME)
 
-        # ---- duration timer for hover-only experiments (started at launch) ----
-        # For trajectory experiments the timer is started when FLYING begins.
         if self._recording and self._duration > 0:
             self._duration_timer = self.create_timer(
                 self._duration, self._timer_expired, clock=self._wall_clock)
@@ -182,9 +114,6 @@ class DataCollectorNode(Node):
             f'duration={"∞" if self._duration <= 0 else f"{self._duration:.0f}s"}  '
             f'recording={"immediate (hover)" if self._recording else "waiting for FLYING phase"}')
 
-    # ------------------------------------------------------------------ #
-    # time helpers
-    # ------------------------------------------------------------------ #
     def _rel(self, t_abs):
         if self._t0 is None:
             self._t0 = t_abs
@@ -193,9 +122,6 @@ class DataCollectorNode(Node):
     def _now_sec(self):
         return _stamp_sec(self.get_clock().now().to_msg())
 
-    # ------------------------------------------------------------------ #
-    # callbacks
-    # ------------------------------------------------------------------ #
     def _state_cb(self, msg: Odometry):
         if not self._recording:
             return
@@ -291,32 +217,23 @@ class DataCollectorNode(Node):
             return
         self._debug_buf.append({
             't': t, 't_rel': self._rel(t),
-            # MPC perturbation (delta from hover)
             'ud_T': d[0], 'ud_phi': d[1], 'ud_theta': d[2], 'ud_psi': d[3],
-            # Integral contribution
             'ui_T': d[4], 'ui_phi': d[5], 'ui_theta': d[6], 'ui_psi': d[7],
-            # Total wrench
             'ut_T': d[8], 'ut_phi': d[9], 'ut_theta': d[10], 'ut_psi': d[11],
-            # Diagnostics
             'torque_scale': d[12],
             'cost_state': d[13],
             'cost_input': d[14],
             'solve_ok': d[15],
-            # Integral error accumulator
             'int_err_x': d[16], 'int_err_y': d[17], 'int_err_z': d[18],
         })
 
-    # ------------------------------------------------------------------ #
-    # trajectory phase callback  (0=PRE_HOVER, 1=FLYING, 2=POST_HOVER)
-    # ------------------------------------------------------------------ #
     def _phase_cb(self, msg: Int32):
         phase = msg.data
         if phase == self._prev_phase:
             return
         self._prev_phase = phase
 
-        if phase == 1:  # FLYING — start recording fresh
-            # Discard any pre-hover data and reset timestamp origin
+        if phase == 1:
             self._state_buf.clear()
             self._ref_buf.clear()
             self._wrench_buf.clear()
@@ -327,12 +244,11 @@ class DataCollectorNode(Node):
             self._t0 = None
             self._recording = True
             self.get_logger().info('Phase FLYING — recording started')
-            # Start optional duration guard (fires if traj_duration=0 / forever)
             if self._duration > 0 and self._duration_timer is None:
                 self._duration_timer = self.create_timer(
                     self._duration, self._timer_expired, clock=self._wall_clock)
 
-        elif phase == 2:  # POST_HOVER — trajectory finished, auto-save
+        elif phase == 2:
             if not self._recording:
                 return
             self._recording = False
@@ -343,9 +259,6 @@ class DataCollectorNode(Node):
                 f'=== Trajectory [{self._traj}] ENDED — saving data … ===')
             self.on_shutdown()
 
-    # ------------------------------------------------------------------ #
-    # duration timer
-    # ------------------------------------------------------------------ #
     def _timer_expired(self):
         if self._duration_timer is not None:
             self._duration_timer.cancel()
@@ -355,9 +268,6 @@ class DataCollectorNode(Node):
         self.on_shutdown()
         raise SystemExit
 
-    # ================================================================== #
-    # SHUTDOWN — all processing happens here
-    # ================================================================== #
     def on_shutdown(self):
         if self._shutdown_done:
             return
@@ -373,50 +283,39 @@ class DataCollectorNode(Node):
         self.get_logger().info(
             f'Processing {n_state} state / {n_ctrl} control samples …')
 
-        # --- build aligned dataframes ---
         state_df, ctrl_df = self._build_dataframes()
         if state_df is None:
             return
 
-        # --- compute metrics ---
         metrics = self._compute_metrics(state_df, ctrl_df)
 
-        # --- output directory ---
         ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         out_dir = os.path.join(self._out_root, f'{self._traj}_{ts}')
         os.makedirs(out_dir, exist_ok=True)
 
-        # --- save ---
         self._save_csv(state_df, ctrl_df, metrics, out_dir)
         self._generate_plots(state_df, ctrl_df, metrics, out_dir)
         self._print_summary(metrics, out_dir)
         self.get_logger().info(
             f'=== Data collection COMPLETE  →  {out_dir}/ ===')
 
-    # ------------------------------------------------------------------ #
-    # DataFrame construction & alignment
-    # ------------------------------------------------------------------ #
     def _build_dataframes(self):
         state_df = pd.DataFrame(self._state_buf)
         ref_df   = pd.DataFrame(self._ref_buf)
         wrench_df = pd.DataFrame(self._wrench_buf)
         motor_df  = pd.DataFrame(self._motor_buf)
 
-        # Sort by time
         for df in (state_df, ref_df, wrench_df, motor_df):
             df.sort_values('t', inplace=True)
             df.reset_index(drop=True, inplace=True)
 
-        # Align reference onto state timestamps
         state_df = pd.merge_asof(
             state_df, ref_df.drop(columns=['t_rel']),
             on='t', tolerance=0.025, direction='nearest')
 
-        # Fill any NaN refs (early samples before traj generator starts)
         ref_cols = [c for c in state_df.columns if c.startswith('ref_')]
         state_df[ref_cols] = state_df[ref_cols].ffill().bfill().fillna(0.0)
 
-        # Compute errors
         for ax in ('x', 'y', 'z'):
             state_df[f'err_{ax}'] = state_df[ax] - state_df[f'ref_{ax}']
         for ax in ('phi', 'theta', 'psi'):
@@ -431,18 +330,15 @@ class DataCollectorNode(Node):
             state_df['err_vx']**2 + state_df['err_vy']**2 +
             state_df['err_vz']**2)
 
-        # Recompute t_rel from earliest sample
         t_min = state_df['t'].iloc[0]
         state_df['t_rel'] = state_df['t'] - t_min
 
-        # Control df — merge wrench + motors + debug
         ctrl_df = pd.merge_asof(
             wrench_df, motor_df.drop(columns=['t_rel']),
             on='t', tolerance=0.025, direction='nearest')
         motor_cols = ['w0', 'w1', 'w2', 'w3']
         ctrl_df[motor_cols] = ctrl_df[motor_cols].ffill().bfill().fillna(0.0)
 
-        # Merge MPC debug if available
         if len(self._debug_buf) > 10:
             dbg_df = pd.DataFrame(self._debug_buf)
             dbg_df.sort_values('t', inplace=True)
@@ -459,9 +355,6 @@ class DataCollectorNode(Node):
 
         return state_df, ctrl_df
 
-    # ------------------------------------------------------------------ #
-    # Metrics
-    # ------------------------------------------------------------------ #
     def _compute_metrics(self, sdf, cdf):
         m = {}
         dur = sdf['t_rel'].iloc[-1] - sdf['t_rel'].iloc[0]
@@ -474,29 +367,24 @@ class DataCollectorNode(Node):
         m['wind_z'] = self._wind[2]
         m['is_wind'] = any(abs(w) > 0.01 for w in self._wind)
 
-        # -- position RMSE --
         for ax in ('x', 'y', 'z'):
             m[f'rmse_{ax}'] = np.sqrt(np.mean(sdf[f'err_{ax}']**2))
             m[f'max_err_{ax}'] = np.max(np.abs(sdf[f'err_{ax}']))
         m['rmse_3d']    = np.sqrt(np.mean(sdf['err_3d']**2))
         m['max_err_3d'] = np.max(sdf['err_3d'])
 
-        # -- velocity RMSE --
         for ax in ('vx', 'vy', 'vz'):
             m[f'rmse_{ax}'] = np.sqrt(np.mean(sdf[f'err_{ax}']**2))
         m['rmse_vel_3d'] = np.sqrt(np.mean(sdf['err_vel_3d']**2))
 
-        # -- settling time (2 % criterion on z, 2 s window) --
         m['settling_time_s'] = self._settling_time(sdf)
 
-        # -- steady-state error (last 20 %) --
         n20 = max(1, int(0.8 * len(sdf)))
         tail = sdf.iloc[n20:]
         for ax in ('x', 'y', 'z'):
             m[f'ss_err_{ax}'] = np.mean(np.abs(tail[f'err_{ax}']))
         m['ss_err_3d'] = np.mean(tail['err_3d'])
 
-        # -- thrust --
         if len(cdf) > 0:
             m['mean_thrust']  = np.mean(cdf['thrust'])
             m['max_thrust']   = np.max(cdf['thrust'])
@@ -507,7 +395,6 @@ class DataCollectorNode(Node):
                 m[f'rms_{ax}'] = np.sqrt(np.mean(cdf[ax]**2))
                 m[f'max_{ax}'] = np.max(np.abs(cdf[ax]))
 
-            # motor utilisation
             ws = cdf[['w0', 'w1', 'w2', 'w3']].values
             util = ws / MAX_ROTOR_SPEED * 100.0
             m['mean_motor_util'] = np.mean(util)
@@ -519,13 +406,11 @@ class DataCollectorNode(Node):
             m['sat_events'] = int(np.sum(sat_mask))
             m['sat_pct']    = np.sum(sat_mask) / len(cdf) * 100.0
 
-            # control energy  ∫‖u‖² dt
             t_ctrl = cdf['t_rel'].values
             u_sq = (cdf['thrust']**2 + cdf['tau_phi']**2 +
                     cdf['tau_theta']**2 + cdf['tau_psi']**2).values
             m['ctrl_energy'] = float(np.trapz(u_sq, t_ctrl))
 
-        # -- linearisation validity --
         m['max_phi_deg']   = np.degrees(np.max(np.abs(sdf['phi'])))
         m['max_theta_deg'] = np.degrees(np.max(np.abs(sdf['theta'])))
         within = ((np.abs(sdf['phi']) < LIN_LIMIT_RAD) &
@@ -535,31 +420,21 @@ class DataCollectorNode(Node):
             m['max_phi_deg'] < LIN_LIMIT_DEG and
             m['max_theta_deg'] < LIN_LIMIT_DEG)
 
-        # Signed steady-state offset (mean, not absolute) — always computed
-        # useful for wind analysis: integral action should drive this to ~0
         m['ss_offset_x'] = float(np.mean(tail['err_x']))
         m['ss_offset_y'] = float(np.mean(tail['err_y']))
         m['ss_offset_z'] = float(np.mean(tail['err_z']))
-        # heuristic flag: significant residual drift observed
         m['wind_detected'] = (abs(m['ss_offset_x']) > 0.05 or
                               abs(m['ss_offset_y']) > 0.05)
 
-        # -- MPC internals (only if debug data merged) --
-        # solve_ok=1 every tick the closed-form gain was applied;
-        # solve_ok=0 only when state was NaN/Inf (control skipped entirely).
         has_debug = 'solve_ok' in cdf.columns
         m['has_mpc_debug'] = has_debug
         if has_debug:
-            # Solve / skip count
             n_total = len(cdf)
             n_ok = int(cdf['solve_ok'].sum())
             m['mpc_solve_ok']   = n_ok
             m['mpc_solve_fail'] = n_total - n_ok
             m['mpc_solve_pct']  = n_ok / n_total * 100.0
-            # Note: this MPC uses a closed-form solution (K_r, K_x precomputed).
-            # It cannot fail to converge; solve_fail counts corrupted-state skips.
 
-            # Cost decomposition
             m['cost_state_mean'] = float(cdf['cost_state'].mean())
             m['cost_state_max']  = float(cdf['cost_state'].max())
             m['cost_input_mean'] = float(cdf['cost_input'].mean())
@@ -567,14 +442,12 @@ class DataCollectorNode(Node):
             m['cost_total_mean'] = float(
                 (cdf['cost_state'] + cdf['cost_input']).mean())
 
-            # Torque scale (allocation saturation)
             ts = cdf['torque_scale']
             m['torque_scale_mean'] = float(ts.mean())
             m['torque_scale_min']  = float(ts.min())
             n_scaled = int((ts < 0.999).sum())
             m['torque_scaled_pct'] = n_scaled / n_total * 100.0
 
-            # Wrench decomposition: MPC delta vs integral vs hover
             m['ud_thrust_rms'] = float(np.sqrt(np.mean(cdf['ud_T']**2)))
             m['ui_thrust_rms'] = float(np.sqrt(np.mean(cdf['ui_T']**2)))
             for ax in ('phi', 'theta', 'psi'):
@@ -583,7 +456,6 @@ class DataCollectorNode(Node):
                 m[f'ui_tau_{ax}_rms'] = float(
                     np.sqrt(np.mean(cdf[f'ui_{ax}']**2)))
 
-            # Integral error accumulator magnitude
             int_mag = np.sqrt(cdf['int_err_x']**2 + cdf['int_err_y']**2 +
                               cdf['int_err_z']**2)
             m['int_err_mag_final'] = float(int_mag.iloc[-1])
@@ -611,9 +483,6 @@ class DataCollectorNode(Node):
                 return float(t[i])
         return float('nan')
 
-    # ------------------------------------------------------------------ #
-    # CSV output
-    # ------------------------------------------------------------------ #
     def _save_csv(self, sdf, cdf, metrics, out):
         sdf.to_csv(os.path.join(out, 'state_data.csv'), index=False,
                     float_format='%.6f')
@@ -624,9 +493,6 @@ class DataCollectorNode(Node):
             os.path.join(out, 'metrics.csv'), index=False)
         self.get_logger().info(f'CSV files saved to {out}')
 
-    # ------------------------------------------------------------------ #
-    # Plots
-    # ------------------------------------------------------------------ #
     def _generate_plots(self, sdf, cdf, met, out):
         try:
             plt.style.use('seaborn-v0_8-whitegrid')
@@ -652,14 +518,9 @@ class DataCollectorNode(Node):
             self._plot_integral_err(cdf, traj, out)
         self.get_logger().info(f'Plots saved to {out}')
 
-    # -- 1. 3-D trajectory --
     def _plot_3d(self, sdf, traj, out):
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
-        # Plot reference FIRST so actual is rendered on top in the depth sort.
-        # Add markers every ~30 samples so the reference is still visible even
-        # when both paths nearly overlap (matplotlib 3D painter's algorithm
-        # makes dashed lines invisible behind solid ones at the same depth).
         n = len(sdf)
         mark_step = max(1, n // 30)
         ax.plot(sdf['ref_x'].to_numpy(), sdf['ref_y'].to_numpy(), sdf['ref_z'].to_numpy(),
@@ -679,7 +540,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, '3d_trajectory.png'), dpi=150)
         plt.close(fig)
 
-    # -- 2. position tracking --
     def _plot_pos_tracking(self, sdf, traj, out):
         fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
         t = sdf['t_rel'].to_numpy()
@@ -698,7 +558,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'position_tracking.png'), dpi=150)
         plt.close(fig)
 
-    # -- 3. velocity tracking (world frame) --
     def _plot_vel_tracking(self, sdf, traj, out):
         fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
         t = sdf['t_rel'].to_numpy()
@@ -717,7 +576,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'velocity_tracking.png'), dpi=150)
         plt.close(fig)
 
-    # -- 4. position error --
     def _plot_pos_error(self, sdf, met, traj, out):
         fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
         t = sdf['t_rel'].to_numpy()
@@ -730,7 +588,6 @@ class DataCollectorNode(Node):
                         label=f'RMSE = {rmse:.4f} m')
             if col != 'err_3d':
                 ax.axhline(-rmse, color='orange', ls='--', lw=1)
-            # shade last 20 %
             t_ss = t[int(0.8 * len(t))]
             ax.axvspan(t_ss, t[-1], alpha=0.08, color='green',
                         label='Steady-state region')
@@ -743,7 +600,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'position_error.png'), dpi=150)
         plt.close(fig)
 
-    # -- 4. control wrench --
     def _plot_wrench(self, cdf, traj, out):
         fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
         t = cdf['t_rel'].to_numpy()
@@ -754,7 +610,6 @@ class DataCollectorNode(Node):
             ax.plot(t, cdf[col].to_numpy(), 'b-', lw=0.8)
             ax.set_ylabel(lab)
             ax.grid(True, alpha=0.3)
-        # hover thrust reference on thrust plot
         axes[0].axhline(HOVER_THRUST, color='gray', ls=':', lw=1,
                          label=f'Hover mg = {HOVER_THRUST:.2f} N')
         axes[0].legend(loc='upper right', fontsize=8)
@@ -764,7 +619,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'control_wrench.png'), dpi=150)
         plt.close(fig)
 
-    # -- 5. motor speeds --
     def _plot_motors(self, cdf, traj, out):
         fig, ax = plt.subplots(figsize=(12, 5))
         t = cdf['t_rel'].to_numpy()
@@ -784,7 +638,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'motor_speeds.png'), dpi=150)
         plt.close(fig)
 
-    # -- 6. Euler angles --
     def _plot_euler(self, sdf, traj, out):
         fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
         t = sdf['t_rel'].to_numpy()
@@ -794,7 +647,6 @@ class DataCollectorNode(Node):
         for ax, lab, col, rc in zip(axes, labels, cols, refs):
             ax.plot(t, np.degrees(sdf[col].to_numpy()), 'b-', lw=0.8, label='Actual')
             ax.plot(t, np.degrees(sdf[rc].to_numpy()), 'r--', lw=0.8, label='Reference')
-            # linearisation band (roll/pitch only)
             if col in ('phi', 'theta'):
                 ax.axhline( LIN_LIMIT_DEG, color='orange', ls=':', lw=1)
                 ax.axhline(-LIN_LIMIT_DEG, color='orange', ls=':', lw=1,
@@ -808,7 +660,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'euler_angles.png'), dpi=150)
         plt.close(fig)
 
-    # -- 7. motor utilisation histogram --
     def _plot_motor_hist(self, cdf, met, traj, out):
         fig, ax = plt.subplots(figsize=(8, 5))
         ws = cdf[['w0', 'w1', 'w2', 'w3']].values.flatten()
@@ -827,7 +678,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'motor_utilization.png'), dpi=150)
         plt.close(fig)
 
-    # -- 8. MPC cost decomposition --
     def _plot_mpc_cost(self, cdf, traj, out):
         fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
         t = cdf['t_rel'].to_numpy()
@@ -859,7 +709,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'mpc_cost.png'), dpi=150)
         plt.close(fig)
 
-    # -- 9. wrench decomposition (hover + MPC delta + integral) --
     def _plot_wrench_decomp(self, cdf, traj, out):
         fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
         t = cdf['t_rel'].to_numpy()
@@ -888,7 +737,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'wrench_decomposition.png'), dpi=150)
         plt.close(fig)
 
-    # -- 10. torque scale timeline --
     def _plot_torque_scale(self, cdf, traj, out):
         fig, ax = plt.subplots(figsize=(12, 4))
         t = cdf['t_rel'].to_numpy()
@@ -910,7 +758,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'torque_scale.png'), dpi=150)
         plt.close(fig)
 
-    # -- 11. integral error accumulator --
     def _plot_integral_err(self, cdf, traj, out):
         fig, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
         t = cdf['t_rel'].to_numpy()
@@ -940,9 +787,6 @@ class DataCollectorNode(Node):
         fig.savefig(os.path.join(out, 'integral_error.png'), dpi=150)
         plt.close(fig)
 
-    # ------------------------------------------------------------------ #
-    # Console summary
-    # ------------------------------------------------------------------ #
     def _print_summary(self, m, out):
         sep = '=' * 76
         wx, wy, wz = m['wind_x'], m['wind_y'], m['wind_z']
@@ -1045,9 +889,6 @@ class DataCollectorNode(Node):
         print(sep + '\n')
 
 
-# ===================================================================
-# Entry point
-# ===================================================================
 def main(args=None):
     rclpy.init(args=args)
     node = DataCollectorNode()

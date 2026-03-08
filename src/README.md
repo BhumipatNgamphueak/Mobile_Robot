@@ -52,38 +52,19 @@ Wind disturbance rejection is achieved through an **integral action** term appen
 
 ## 2. System Architecture
 
-### 2.1 ROS 2 Node Graph
+### 2.1 Control Block Diagram
 
-```
-                     ┌─────────────────────────────────────┐
-                     │           Ignition Gazebo            │
-                     │  ┌──────────┐   ┌─────────────────┐ │
-                     │  │  World   │   │   Quadrotor      │ │
-                     │  │  (SDF)   │   │  (URDF/xacro)   │ │
-                     └──┴──────────┴───┴────────┬────────┴─┘
-                                                 │
-                        /imu  (BEST_EFFORT)       │  /odom  (BEST_EFFORT)
-                        ◄────────────────────────┘────────────────────────
-                        │                                                  │
-                ┌───────▼──────────────────────────────────────────────────▼───┐
-                │                      ekf_node  (100 Hz)                      │
-                │         Extended Kalman Filter — fuses IMU + odometry         │
-                └───────────────────────┬──────────────────────────────────────┘
-                                        │  /state_estimate  (RELIABLE)
-                ┌───────────────────────▼──────────────────────────────────────┐
-                │                   mpc_controller  (50 Hz)                    │
-                │    Linearised MPC + Motor Allocation + Integral Action        │
-                │    ┌──────────────────────────────────────────────────────┐  │
-                │    │  /reference_state ◄── trajectory_generator  (50 Hz) │  │
-                │    └──────────────────────────────────────────────────────┘  │
-                └──────┬────────────────────────────┬─────────────────────────┘
-                       │  /motor_commands            │  /mpc_debug
-                       │  /control_wrench            │  /actual_path
-                       ▼                             ▼
-                   Gazebo Motors              data_collector
-```
+<p align="center">
+  <img src="../block_diagram.png" width="90%"/>
+</p>
 
-### 2.2 Topic Summary
+### 2.2 ROS 2 Node Graph
+
+<p align="center">
+  <img src="../system_architecture.png" width="90%"/>
+</p>
+
+### 2.3 Topic Summary
 
 | Topic | Message Type | QoS | Description |
 |-------|-------------|-----|-------------|
@@ -95,7 +76,7 @@ Wind disturbance rejection is achieved through an **integral action** term appen
 | `/motor_commands` | `actuator_msgs/Actuators` | RELIABLE | Rotor speeds $`[\omega_0, \omega_1, \omega_2, \omega_3]`$ at 50 Hz |
 | `/mpc_debug` | `std_msgs/Float64MultiArray` | RELIABLE | 19-field MPC internal telemetry at 50 Hz |
 
-### 2.3 Package Structure
+### 2.4 Package Structure
 
 ```
 quad_controller/
