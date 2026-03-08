@@ -752,28 +752,38 @@ All experiments achieved **100% MPC solve rate** and **zero torque-scale events*
 
 ### 8.5 Prediction Horizon Comparison (with Trajectory Preview)
 
-To quantify the effect of the MPC prediction horizon $N$ on tracking performance, the **cone helix** trajectory was re-run with four different horizon lengths: $N \in \{20,\, 50,\, 100,\, 250\}$ steps, corresponding to lookahead windows of 0.4 s, 1.0 s, 2.0 s, and 5.0 s respectively. All runs use the no-wind environment with identical Q/R weights.
+To quantify the effect of the MPC prediction horizon $N$ on tracking performance, the **cone helix** trajectory was re-run with six different horizon lengths: $N \in \{1,\, 5,\, 20,\, 50,\, 100,\, 250\}$ steps, corresponding to lookahead windows of 0.02 s to 5.0 s. All runs use the no-wind environment with identical Q/R weights.
 
-Unlike a constant-reference formulation (which tiles a single waypoint over the entire horizon), these experiments use **trajectory preview**: the trajectory generator publishes the full $N$-step future reference sequence so the MPC can anticipate upcoming curvature changes. This is the key enabler for longer horizons to actually improve tracking.
+All experiments use **trajectory preview**: the trajectory generator publishes the full $N$-step future reference sequence so the MPC can anticipate upcoming curvature changes.
 
 #### Quantitative Comparison
 
 | Horizon $N$ | Lookahead [s] | RMSE 3D [m] | SS Err 3D [m] | Max $\|\phi\|$ (°) | Max $\|\theta\|$ (°) | Lin. Valid (%) | Ctrl Energy |
 |:-----------:|:-------------:|:-----------:|:------------:|:------------------:|:--------------------:|:--------------:|:-----------:|
-| 20 | 0.4 | 0.091 | 0.092 | 8.81 | 8.14 | 100.0% | 2236 |
-| 50 | 1.0 | **0.060** | 0.081 | 8.09 | 8.15 | 100.0% | 2234 |
-| 100 | 2.0 | **0.060** | **0.078** | 8.49 | 8.16 | 100.0% | 2233 |
-| 250 | 5.0 | 0.077 | 0.086 | 8.45 | 8.09 | 100.0% | 2234 |
+| 1 | 0.02 | 0.303 | 0.482 | 8.0 | 8.8 | 100.0% | 2237 |
+| 5 | 0.10 | 0.304 | 0.483 | 8.0 | 8.8 | 100.0% | 2237 |
+| 20 | 0.4 | **0.061** | **0.077** | 8.7 | 8.1 | 100.0% | 2236 |
+| 50 | 1.0 | **0.060** | 0.081 | 8.1 | 8.2 | 100.0% | 2234 |
+| 100 | 2.0 | **0.060** | 0.078 | 8.5 | 8.2 | 100.0% | 2233 |
+| 250 | 5.0 | **0.060** | 0.079 | 8.4 | 8.1 | 100.0% | 2234 |
 
 #### 3D Trajectory Comparison
 
 <table>
   <tr>
+    <td><img src="../data/cone_helix_1_step/3d_trajectory.png"/></td>
+    <td><img src="../data/cone_helix_5_steps/3d_trajectory.png"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>N = 1 (0.02 s) — RMSE 0.303 m</em></td>
+    <td align="center"><em>N = 5 (0.10 s) — RMSE 0.304 m</em></td>
+  </tr>
+  <tr>
     <td><img src="../data/cone_helix_20_steps/3d_trajectory.png"/></td>
     <td><img src="../data/cone_helix_50_steps/3d_trajectory.png"/></td>
   </tr>
   <tr>
-    <td align="center"><em>N = 20 (0.4 s) — RMSE 0.091 m</em></td>
+    <td align="center"><em>N = 20 (0.4 s) — RMSE 0.061 m</em></td>
     <td align="center"><em>N = 50 (1.0 s) — RMSE 0.060 m</em></td>
   </tr>
   <tr>
@@ -782,7 +792,7 @@ Unlike a constant-reference formulation (which tiles a single waypoint over the 
   </tr>
   <tr>
     <td align="center"><em>N = 100 (2.0 s) — RMSE 0.060 m</em></td>
-    <td align="center"><em>N = 250 (5.0 s) — RMSE 0.077 m</em></td>
+    <td align="center"><em>N = 250 (5.0 s) — RMSE 0.060 m</em></td>
   </tr>
 </table>
 
@@ -790,34 +800,42 @@ Unlike a constant-reference formulation (which tiles a single waypoint over the 
 
 <table>
   <tr>
+    <td><img src="../data/cone_helix_1_step/position_tracking.png"/></td>
+    <td><img src="../data/cone_helix_5_steps/position_tracking.png"/></td>
+  </tr>
+  <tr>
+    <td align="center"><em>N = 1 — nearly constant-reference behaviour</em></td>
+    <td align="center"><em>N = 5 — insufficient lookahead</em></td>
+  </tr>
+  <tr>
     <td><img src="../data/cone_helix_20_steps/position_tracking.png"/></td>
     <td><img src="../data/cone_helix_50_steps/position_tracking.png"/></td>
   </tr>
   <tr>
-    <td align="center"><em>N = 20 — baseline</em></td>
-    <td align="center"><em>N = 50 — best RMSE</em></td>
+    <td align="center"><em>N = 20 — sharp improvement</em></td>
+    <td align="center"><em>N = 50</em></td>
   </tr>
   <tr>
     <td><img src="../data/cone_helix_100_step/position_tracking.png"/></td>
     <td><img src="../data/cone_helix_250_steps/position_tracking.png"/></td>
   </tr>
   <tr>
-    <td align="center"><em>N = 100 — best steady-state</em></td>
+    <td align="center"><em>N = 100</em></td>
     <td align="center"><em>N = 250</em></td>
   </tr>
 </table>
 
 #### Key Observations
 
-1. **Trajectory preview unlocks longer horizons.** With the full $N$-step reference sequence provided to the MPC, longer horizons now **improve** tracking — the opposite of the constant-reference case. $N = 50$ and $N = 100$ both achieve RMSE 0.060 m, a **34% improvement** over $N = 20$ (0.091 m).
+1. **Critical threshold at N ≈ 20.** RMSE drops 5× from N=5 (0.304 m) to N=20 (0.061 m), then plateaus. This threshold corresponds to a 0.4 s lookahead — approximately one-fifth of the cone helix orbital period ($1/f = 5$ s). Below this threshold, the MPC cannot see far enough ahead to anticipate curvature.
 
-2. **Sweet spot at N = 50–100.** The best tracking occurs in the 1.0–2.0 s lookahead range. $N = 100$ achieves the lowest steady-state error (0.078 m), while $N = 50$ matches its RMSE with a slightly shorter horizon. Beyond $N = 100$, performance degrades slightly ($N = 250$: RMSE 0.077 m) due to numerical conditioning effects in the batch QP as the horizon matrix grows.
+2. **N = 1 and N = 5 behave like constant-reference.** With only 0.02–0.10 s of preview, the MPC sees essentially the same reference repeated — producing RMSE (0.303 m) and steady-state error (0.482 m) comparable to the old constant-reference formulation.
 
-3. **100% linearisation validity across all horizons.** Every run stays well within the $\pm 15°$ bound (max angles 8.1°–8.8°). The trajectory preview allows the MPC to plan smoother attitude transitions, eliminating the aggressive corrections that previously violated the linearisation assumption.
+3. **Saturated performance for N ≥ 20.** All horizons from N=20 to N=250 achieve RMSE ~0.060 m, confirming that 0.4 s of curvature information is sufficient. Additional lookahead provides no measurable benefit.
 
-4. **Nearly identical control energy.** All four horizons produce similar control energy (2233–2236), confirming that the trajectory preview produces efficient, smooth control regardless of horizon length — unlike the constant-reference case where shorter horizons required significantly more energy.
+4. **100% linearisation validity across all horizons.** Even the poorly-tracking N=1 case stays within the ±15° bound (max 8.8°), confirming that trajectory preview produces smooth control regardless of tracking accuracy.
 
-5. **Order-of-magnitude improvement over constant-reference.** Compared to the constant-reference formulation (previous RMSE 0.94–1.71 m, linearisation valid 60–68%), the trajectory preview reduces RMSE by **15× at $N = 50$** and ensures all flights remain within the valid linearisation region.
+5. **Order-of-magnitude improvement over short horizons.** The transition from N=5 to N=20 delivers a **5× RMSE reduction** (0.304 → 0.061 m) — the single largest performance gain achievable by tuning the horizon length.
 
 ---
 
