@@ -331,7 +331,7 @@ $$\mathbf{u}_\delta = K_r\,\mathbf{X}_{\text{ref}} + K_x\,\mathbf{x}_0^h$$
 The gravity feedforward restores the true wrench:
 
 $$
-\mathbf{u}_{\text{total}} = \mathbf{u}_\delta + \begin{bmatrix}mg \\ 0 \\ 0 \\ 0\end{bmatrix}
+\mathbf{u}_{\text{total}} = \mathbf{u}_\delta + \begin{bmatrix} mg \\ 0 \\ 0 \\ 0 \end{bmatrix}
 $$
 
 **Step 4 — Integral action** (if $z > 0.15$ m):
@@ -414,7 +414,7 @@ At each 100 Hz prediction tick, the EKF propagates the full nonlinear equations 
 $$\dot{\mathbf{p}} = \mathbf{v}$$
 
 $$
-\dot{\mathbf{v}} = R_{WB}(\phi,\theta,\psi)\begin{bmatrix}0\\0\\T/m\end{bmatrix} + \begin{bmatrix}0\\0\\-g\end{bmatrix}
+\dot{\mathbf{v}} = R_{WB}(\phi,\theta,\psi)\begin{bmatrix} 0 \\ 0 \\ T/m \end{bmatrix} + \begin{bmatrix} 0 \\ 0 \\ -g \end{bmatrix}
 $$
 
 where $R_{WB}$ is the ZXY rotation matrix defined in Section 3.2.
@@ -466,7 +466,7 @@ This is a linear measurement model that directly observes all 6 pose states. Ang
 The accelerometer in a multirotor measures the **specific force in the body frame** — the net non-gravitational force per unit mass. Near hover, this is dominated by the rotor thrust:
 
 $$
-\mathbf{a}_{\text{pred}} = \begin{bmatrix}0 \\ 0 \\ T/m\end{bmatrix} \quad (\text{body frame, exact for any attitude})
+\mathbf{a}_{\text{pred}} = \begin{bmatrix} 0 \\ 0 \\ T/m \end{bmatrix} \quad (\text{body frame, exact for any attitude})
 $$
 
 Because this prediction depends on the control input $T$ rather than any state, the accelerometer Jacobian rows are zero: $H_{\text{imu}}[0:3,\,:] = 0$. The Kalman gain for those rows vanishes and the accelerometer innovation does not update the state. Only the **gyroscope rows** have non-zero Jacobian entries:
