@@ -69,6 +69,8 @@ from std_msgs.msg import Float64MultiArray, Int32
 from geometry_msgs.msg import PoseStamped
 
 
+N_STATES = 12   # state dimension [x,y,z,φ,θ,ψ,ẋ,ẏ,ż,p,q,r]
+
 # ---------------------------------------------------------------------------
 # Trajectory catalogue
 # ---------------------------------------------------------------------------
@@ -578,6 +580,8 @@ class TrajectoryGenerator(Node):
         self.declare_parameter('traj_yaw_rate',      0.0)
         self.declare_parameter('traj_duration',      0.0)
         self.declare_parameter('traj_plane',         'xz')  # 'xz' or 'xy'
+        self.declare_parameter('horizon_steps',      0)     # 0 = no preview
+        self.declare_parameter('horizon_dt',         0.02)  # MPC dt
 
         self._load_params()
 
@@ -637,6 +641,9 @@ class TrajectoryGenerator(Node):
         self._traj_type  = g('trajectory_type').value
         self._hover_time = g('hover_time').value
         self._duration   = g('traj_duration').value
+
+        self._horizon_steps = int(g('horizon_steps').value)
+        self._horizon_dt    = float(g('horizon_dt').value)
 
         self._params = {
             'hover_z':         g('hover_z').value,
@@ -708,12 +715,24 @@ class TrajectoryGenerator(Node):
                 self.get_logger().info('Phase → POST_HOVER  (returning to hover)')
 
         # ---- Select active reference ----
-        ref = (self._active_traj.reference(t_now)
-               if self._phase == _PHASE_FLYING
-               else self._hover_traj.reference(t_now))
+        traj = (self._active_traj
+                if self._phase == _PHASE_FLYING
+                else self._hover_traj)
+        ref = traj.reference(t_now)
 
-        msg = Float64MultiArray()
-        msg.data = ref.tolist()
+        # Build message: current ref + optional N-step preview
+        if self._horizon_steps > 0:
+            preview = np.empty(N_STATES + self._horizon_steps * N_STATES)
+            preview[:N_STATES] = ref
+            for k in range(self._horizon_steps):
+                t_k = t_now + (k + 1) * self._horizon_dt
+                preview[N_STATES + k * N_STATES:
+                        N_STATES + (k + 1) * N_STATES] = traj.reference(t_k)
+            msg = Float64MultiArray()
+            msg.data = preview.tolist()
+        else:
+            msg = Float64MultiArray()
+            msg.data = ref.tolist()
         self.ref_pub.publish(msg)
 
         # Publish phase on every change so data_collector can gate recording

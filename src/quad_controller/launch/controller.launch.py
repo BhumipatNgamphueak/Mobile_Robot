@@ -97,6 +97,11 @@ def generate_launch_description():
         default_value='0.5',
         description='Acceleration for straight-line ramp [m/s²]; 0 = instant speed')
 
+    horizon_steps_arg = DeclareLaunchArgument(
+        'horizon_steps',
+        default_value='0',
+        description='Trajectory preview steps (0 = disabled, use MPC horizon for best tracking)')
+
     wind_x_arg = DeclareLaunchArgument(
         'wind_x', default_value='0.0',
         description='Wind x-component [m/s] for RViz arrow')
@@ -112,6 +117,7 @@ def generate_launch_description():
     traj_duration = LaunchConfiguration('traj_duration')
     traj_plane    = LaunchConfiguration('traj_plane')
     traj_accel    = LaunchConfiguration('traj_accel')
+    horizon_steps = LaunchConfiguration('horizon_steps')
     wind_x        = LaunchConfiguration('wind_x')
     wind_y        = LaunchConfiguration('wind_y')
     wind_z        = LaunchConfiguration('wind_z')
@@ -172,6 +178,7 @@ def generate_launch_description():
                 'traj_duration':   traj_duration,
                 'traj_plane':      traj_plane,
                 'traj_accel':      traj_accel,
+                'horizon_steps':   horizon_steps,
             },
         ],
     )
@@ -201,6 +208,7 @@ def generate_launch_description():
         traj_duration_arg,
         traj_plane_arg,
         traj_accel_arg,
+        horizon_steps_arg,
         wind_x_arg,
         wind_y_arg,
         wind_z_arg,

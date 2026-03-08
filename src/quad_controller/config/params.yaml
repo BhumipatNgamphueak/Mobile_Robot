@@ -90,3 +90,7 @@ trajectory_generator:
     traj_yaw_rate:    0.0
     traj_duration:    0.0
     traj_plane:       xz    # 'xz' (altitude change) or 'xy' (horizontal)
+    # Trajectory preview for MPC (0 = disabled, tiles constant reference)
+    # Set to match MPC horizon for best tracking on time-varying trajectories
+    horizon_steps:    0
+    horizon_dt:       0.02  # must match MPC dt

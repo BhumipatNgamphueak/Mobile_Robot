@@ -150,6 +150,7 @@ class MPCController(Node):
         self.x_state = np.zeros(N_STATES)
         self.x_ref   = np.zeros(N_STATES)
         self.x_ref[2] = 1.0    # default hover at z=1.0m
+        self._ref_preview = None  # N×12 trajectory preview (or None → tile)
 
         # Integral of position error for wind / disturbance rejection
         self._integral_err = np.zeros(3)   # world-frame [x, y, z]
@@ -416,13 +417,19 @@ class MPCController(Node):
 
     def _ref_cb(self, msg: Float64MultiArray):
         """Update reference setpoint and record reference path."""
-        data = list(msg.data)
-        if len(data) >= N_STATES:
-            self.x_ref = np.array(data[:N_STATES])
+        data = np.array(msg.data)
+        if len(data) > N_STATES and len(data) % N_STATES == 0:
+            # Trajectory preview: first 12 = current ref, rest = horizon preview
+            self.x_ref = data[:N_STATES].copy()
+            self._ref_preview = data[N_STATES:]  # N*12 future references
+        elif len(data) >= N_STATES:
+            self.x_ref = data[:N_STATES].copy()
+            self._ref_preview = None
         elif len(data) == 3:
             ref      = np.zeros(N_STATES)
             ref[0:3] = data
             self.x_ref = ref
+            self._ref_preview = None
 
         # Append reference position to reference path
         ps = PoseStamped()
@@ -479,8 +486,23 @@ class MPCController(Node):
         xr_h[6] =  c * x_ref[6] + s * x_ref[7]
         xr_h[7] = -s * x_ref[6] + c * x_ref[7]
 
-        # Constant reference tiled over horizon
-        X_ref = np.tile(xr_h, N)
+        # Build horizon reference: use trajectory preview if available
+        if (self._ref_preview is not None
+                and len(self._ref_preview) >= N * n):
+            # Rotate each preview step into the heading frame
+            X_ref = np.empty(N * n)
+            preview = self._ref_preview
+            for k in range(N):
+                rk = preview[k * n:(k + 1) * n].copy()
+                rk[0] =  c * preview[k*n + 0] + s * preview[k*n + 1]
+                rk[1] = -s * preview[k*n + 0] + c * preview[k*n + 1]
+                rk[5] = (preview[k*n + 5] - psi + np.pi) % (2*np.pi) - np.pi
+                rk[6] =  c * preview[k*n + 6] + s * preview[k*n + 7]
+                rk[7] = -s * preview[k*n + 6] + c * preview[k*n + 7]
+                X_ref[k * n:(k + 1) * n] = rk
+        else:
+            # Fallback: constant reference tiled over horizon
+            X_ref = np.tile(xr_h, N)
 
         # Unconstrained MPC optimal first move (delta from hover equilibrium)
         u_delta = self.K_r @ X_ref + self.K_x @ x0_h
