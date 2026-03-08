@@ -91,8 +91,8 @@ Wind disturbance rejection is achieved through an **integral action** term appen
 | `/odom` | `nav_msgs/Odometry` | BEST_EFFORT | Gazebo ground-truth pose at ~100 Hz |
 | `/state_estimate` | `nav_msgs/Odometry` | RELIABLE | EKF 12-state output at 100 Hz |
 | `/reference_state` | `std_msgs/Float64MultiArray` | RELIABLE | 12-state trajectory reference at 50 Hz |
-| `/control_wrench` | `std_msgs/Float64MultiArray` | RELIABLE | Total wrench $[T,\tau_\phi,\tau_\theta,\tau_\psi]$ at 50 Hz |
-| `/motor_commands` | `actuator_msgs/Actuators` | RELIABLE | Rotor speeds $[\omega_0,\omega_1,\omega_2,\omega_3]$ at 50 Hz |
+| `/control_wrench` | `std_msgs/Float64MultiArray` | RELIABLE | Total wrench $[T,$ $\tau_\phi,$ $\tau_\theta,$ $\tau_\psi]$ at 50 Hz |
+| `/motor_commands` | `actuator_msgs/Actuators` | RELIABLE | Rotor speeds $[\omega_0,$ $\omega_1,$ $\omega_2,$ $\omega_3]$ at 50 Hz |
 | `/mpc_debug` | `std_msgs/Float64MultiArray` | RELIABLE | 19-field MPC internal telemetry at 50 Hz |
 
 ### 2.3 Package Structure
@@ -127,9 +127,14 @@ The 12-dimensional state vector is defined as:
 
 $$\mathbf{x} = \begin{bmatrix} x & y & z & \phi & \theta & \psi & \dot{x} & \dot{y} & \dot{z} & p & q & r \end{bmatrix}^\top \in \mathbb{R}^{12}$$
 
-where $(x, y, z)$ is the position in $\{W\}$, $(\phi, \theta, \psi)$ are the **ZXY Euler angles** (roll, pitch, yaw), $(\dot{x}, \dot{y}, \dot{z})$ are linear velocities in $\{W\}$, and $(p, q, r)$ are body-frame angular rates.
+where $(x, y, z)$ is the position in $\{W\}$, $(\phi, \theta, \psi)$ are the **ZXY Euler angles** (roll, pitch, yaw),
+$(\dot{x}, \dot{y}, \dot{z})$ are linear velocities in $\{W\}$, and $(p, q, r)$ are body-frame angular rates.
 
-**ZXY convention:** The rotation matrix from body to world is $R = R_z(\psi)\,R_x(\phi)\,R_y(\theta)$, which yields the parametrisation used by `scipy.spatial.transform.Rotation.as_euler('zxy')`.
+**ZXY convention:** The rotation matrix from body to world is
+
+$$R = R_z(\psi)\,R_x(\phi)\,R_y(\theta)$$
+
+which yields the parametrisation used by `scipy.spatial.transform.Rotation.as_euler('zxy')`.
 
 ### 3.3 Rigid Body Dynamics
 
@@ -139,13 +144,22 @@ Applying Newton-Euler equations to the quadrotor:
 
 $$m\ddot{\mathbf{p}} = R\,\mathbf{f}_B - m g\,\hat{z}_W$$
 
-where $\mathbf{f}_B = [0, 0, T]^\top$ is the total thrust in the body frame and $T = \sum_{i=0}^{3} T_i$.
+where $\mathbf{f}_B = [0, 0, T]^\top$ is the total thrust in the body frame and
+$T = \sum_{i=0}^{3} T_i$.
 
 **Rotational dynamics (body frame):**
 
 $$\mathbf{I}\,\dot{\boldsymbol{\omega}} = \boldsymbol{\tau} - \boldsymbol{\omega} \times \mathbf{I}\boldsymbol{\omega}$$
 
-where $\mathbf{I} = \text{diag}(I_{xx}, I_{yy}, I_{zz})$ is the inertia tensor and $\boldsymbol{\tau} = [\tau_\phi, \tau_\theta, \tau_\psi]^\top$ is the body torque.
+where
+
+$$\mathbf{I} = \mathrm{diag}(I_{xx}, I_{yy}, I_{zz})$$
+
+is the inertia tensor and
+
+$$\boldsymbol{\tau} = [\tau_\phi, \tau_\theta, \tau_\psi]^\top$$
+
+is the body torque.
 
 ### 3.4 Motor Model
 
@@ -153,15 +167,17 @@ Each rotor $i$ produces:
 
 $$T_i = k_F \omega_i^2, \qquad \tau_{d,i} = -d_i \, k_F \, k_M \, \omega_i^2$$
 
-where $k_F = 8.549 \times 10^{-6}\ \text{N/(rad/s)}^2$ is the thrust coefficient, $k_M = 0.06$ is the dimensionless moment-to-thrust ratio (Gazebo `momentConstant`), and $d_i \in \{+1, -1\}$ is the spinning direction (CCW = $+1$, CW = $-1$).
+where $k_F = 8.549 \times 10^{-6}\ \mathrm{N/(rad/s)}^2$ is the thrust coefficient,
+$k_M = 0.06$ is the dimensionless moment-to-thrust ratio (Gazebo `momentConstant`),
+and $d_i \in \{+1, -1\}$ is the spinning direction (CCW = $+1$, CW = $-1$).
 
-The effective yaw coefficient is $\kappa = k_F k_M = 5.129 \times 10^{-7}\ \text{N}{\cdot}\text{m/(rad/s)}^2$.
+The effective yaw coefficient is $\kappa = k_F k_M = 5.129 \times 10^{-7}\ \mathrm{N{\cdot}m/(rad/s)}^2$.
 
 ### 3.5 Motor Layout and Allocation Matrix
 
 Rotor positions and directions (from `quadrotor_base.xacro`):
 
-| Rotor | Position $(r_x, r_y)$ [m] | Direction $d_i$ |
+| Rotor | Position ($r_x$, $r_y$) [m] | Direction $d_i$ |
 |-------|--------------------------|----------------|
 | 0 (front-right) | $(+0.13,\ -0.22)$ | CCW ($+1$) |
 | 1 (rear-left)   | $(-0.13,\ +0.20)$ | CCW ($+1$) |
@@ -174,11 +190,17 @@ $$
 \begin{bmatrix} T \\\\ \tau_\phi \\\\ \tau_\theta \\\\ \tau_\psi \end{bmatrix} = \underbrace{\begin{bmatrix} k_F & k_F & k_F & k_F \\\\ k_F r_{y,0} & k_F r_{y,1} & k_F r_{y,2} & k_F r_{y,3} \\\\ -k_F r_{x,0} & -k_F r_{x,1} & -k_F r_{x,2} & -k_F r_{x,3} \\\\ -d_0\kappa & -d_1\kappa & -d_2\kappa & -d_3\kappa \end{bmatrix}}_{\mathbf{A}} \begin{bmatrix} \omega_0^2 \\\\ \omega_1^2 \\\\ \omega_2^2 \\\\ \omega_3^2 \end{bmatrix}
 $$
 
-Motor speeds are recovered by $\boldsymbol{\omega}^2 = \mathbf{A}^{-1} \mathbf{u}$, where $\mathbf{u} = [T, \tau_\phi, \tau_\theta, \tau_\psi]^\top$.
+Motor speeds are recovered by $\boldsymbol{\omega}^2 = \mathbf{A}^{-1} \mathbf{u}$, where
+
+$$\mathbf{u} = [T, \tau_\phi, \tau_\theta, \tau_\psi]^\top$$
 
 ### 3.6 Linearisation around Hover
 
-At the hover equilibrium $\mathbf{x}_0 = \mathbf{0}_{12}$, $\mathbf{u}_0 = [mg, 0, 0, 0]^\top$, and under the small-angle assumption ($|\phi|, |\theta| \ll 1$), the nonlinear dynamics reduce to the continuous LTI system $\dot{\mathbf{x}} = A_c\,\mathbf{x} + B_c\,\mathbf{u}$:
+At the hover equilibrium $\mathbf{x}_0 = \mathbf{0}_{12}$,
+$\mathbf{u}_0 = [mg, 0, 0, 0]^\top$,
+and under the small-angle assumption ($\lvert\phi\rvert, \lvert\theta\rvert \ll 1$),
+the nonlinear dynamics reduce to the continuous LTI system
+$\dot{\mathbf{x}} = A_c\,\mathbf{x} + B_c\,\mathbf{u}$:
 
 $$
 A_c = \begin{bmatrix} \mathbf{0}_3 & \mathbf{0}_3 & I_3 & \mathbf{0}_3 \\\\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & I_3 \\\\ \mathbf{0}_{3\times3}^* & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \\\\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \end{bmatrix}, \quad B_c = \begin{bmatrix} \mathbf{0}_{6\times4} \\\\ B_{\text{acc}} \end{bmatrix}
@@ -188,7 +210,9 @@ The non-zero coupling entries in $A_c$ are:
 
 $$\ddot{x} \approx g\,\theta, \qquad \ddot{y} \approx -g\,\phi$$
 
-and $B_{\text{acc}} = \text{diag}(0, 0, 1/m, 1/I_{xx}, 1/I_{yy}, 1/I_{zz})$ (rows 7–12, columns $T, \tau_\phi, \tau_\theta, \tau_\psi$).
+and (rows 7–12, columns $T$, $\tau_\phi$, $\tau_\theta$, $\tau_\psi$):
+
+$$B_{\text{acc}} = \text{diag}(0, 0, 1/m, 1/I_{xx}, 1/I_{yy}, 1/I_{zz})$$
 
 The system is discretised at $\Delta t = 0.02$ s using zero-order hold (ZOH):
 
@@ -199,7 +223,7 @@ $$\mathbf{x}_{k+1} = A_d\,\mathbf{x}_k + B_d\,\mathbf{u}_k$$
 The following assumptions are made throughout this laboratory:
 
 1. **Rigid body:** The quadrotor frame is perfectly rigid with no structural flexibility.
-2. **Small angles:** The linearisation is valid only when $|\phi| < 15°$ and $|\theta| < 15°$. Violations degrade MPC performance.
+2. **Small angles:** The linearisation is valid only when $\lvert\phi\rvert < 15°$ and $\lvert\theta\rvert < 15°$. Violations degrade MPC performance.
 3. **Quadratic thrust law:** Each rotor produces thrust strictly proportional to $\omega_i^2$ with no motor dynamics or delays.
 4. **No body aerodynamic drag:** Translational drag on the airframe is neglected. Only rotor thrust and gravity act on the centre of mass.
 5. **Constant wind:** In the wind experiment, the disturbance is a constant body-level force (Gazebo `WindEffects` plugin, 4 m/s in the $-y$ direction). Wind gusts and turbulence are not modelled.
@@ -216,7 +240,16 @@ The MPC minimises a finite-horizon quadratic cost over a prediction horizon $N =
 
 $$\min_{\mathbf{U}} \quad J = \sum_{k=0}^{N-1} \left[ (\mathbf{x}_k - \mathbf{x}_{\text{ref}})^\top Q\,(\mathbf{x}_k - \mathbf{x}_{\text{ref}}) + \mathbf{u}_k^\top R\,\mathbf{u}_k \right]$$
 
-subject to $\mathbf{x}_{k+1} = A_d\,\mathbf{x}_k + B_d\,\mathbf{u}_k$, where $\mathbf{u}_k = [T - mg,\, \tau_\phi,\, \tau_\theta,\, \tau_\psi]^\top$ is the control perturbation from the hover equilibrium $\mathbf{u}_0 = [mg,0,0,0]^\top$.
+subject to
+
+$$\mathbf{x}_{k+1} = A_d\,\mathbf{x}_k + B_d\,\mathbf{u}_k$$
+
+where
+
+$$\mathbf{u}_k = [T - mg,\, \tau_\phi,\, \tau_\theta,\, \tau_\psi]^\top$$
+
+is the control perturbation from the hover equilibrium
+$\mathbf{u}_0 = [mg,0,0,0]^\top$.
 
 The diagonal weight matrices penalise tracking error and control effort:
 
@@ -228,7 +261,9 @@ Position is weighted highest to prioritise tracking; attitude and velocity provi
 
 ### 4.2 Batch-Form Prediction Matrices
 
-The predicted state sequence over the full horizon is expressed as a linear function of the current state $\mathbf{x}_0$ and the stacked control sequence $\mathbf{U} = [\mathbf{u}_0^\top, \ldots, \mathbf{u}_{N-1}^\top]^\top \in \mathbb{R}^{Nm}$:
+The predicted state sequence over the full horizon is expressed as a linear function of the current state $\mathbf{x}_0$ and the stacked control sequence
+
+$$\mathbf{U} = [\mathbf{u}_0^\top, \ldots, \mathbf{u}_{N-1}^\top]^\top \in \mathbb{R}^{Nm}$$
 
 $$\mathbf{X} = \Phi\,\mathbf{x}_0 + \Gamma\,\mathbf{U} \qquad \mathbf{X} = [\mathbf{x}_1^\top,\ldots,\mathbf{x}_N^\top]^\top \in \mathbb{R}^{Nn}$$
 
@@ -244,7 +279,9 @@ $$
 \Gamma_{ij} = A_d^{i-j}\,B_d, \qquad \Gamma = \begin{bmatrix} B_d & 0 & \cdots & 0 \\\\ A_d B_d & B_d & \cdots & 0 \\\\ A_d^2 B_d & A_d B_d & \cdots & 0 \\\\ \vdots & \vdots & \ddots & \vdots \\\\ A_d^{N-1}B_d & A_d^{N-2}B_d & \cdots & B_d \end{bmatrix} \in \mathbb{R}^{Nn \times Nm}
 $$
 
-The lower-triangular structure captures causality: input at step $j$ only influences states at steps $j, j+1, \ldots, N-1$. Both $\Phi$ and $\Gamma$ are computed once at node startup using the ZOH-discretised matrices from `scipy.signal.cont2discrete`. The block cost matrices are $\bar{Q} = I_N \otimes Q$ and $\bar{R} = I_N \otimes R$.
+The lower-triangular structure captures causality: input at step $j$ only influences states at steps $j, j+1, \ldots, N-1$. Both $\Phi$ and $\Gamma$ are computed once at node startup using the ZOH-discretised matrices from `scipy.signal.cont2discrete`. The block cost matrices are
+$\bar{Q} = I_N \otimes Q$ and
+$\bar{R} = I_N \otimes R$.
 
 ### 4.3 Closed-Form Optimal Gain Computation
 
@@ -262,24 +299,28 @@ $$K_r = \bigl[H^{-1}G^\top Q\bigr]_{0:m,\,:} \in \mathbb{R}^{m \times Nn} \qquad
 
 $$K_x = -\bigl[H^{-1}G^\top Q\,\Phi\bigr]_{0:m,\,:} \in \mathbb{R}^{m \times n} \qquad \text{(state feedback gain)}$$
 
-The **negative sign in $K_x$** arises from the sign reversal of the state term $-\Phi\mathbf{x}_0$ relative to the reference term $+\mathbf{X}_{\text{ref}}$. Once computed offline, the optimal perturbation control at every 50 Hz tick is:
+The **negative sign in $K_x$** arises from the sign reversal of the state term $-\Phi\mathbf{x}_0$ relative to the reference term
+$+\mathbf{X}_{\mathrm{ref}}$. Once computed offline, the optimal perturbation control at every 50 Hz tick is:
 
 $$\mathbf{u}_\delta = K_r\,\mathbf{X}_{\text{ref}} + K_x\,\mathbf{x}_0^h$$
 
-where $\mathbf{X}_{\text{ref}} = \mathbf{1}_N \otimes \mathbf{x}_{\text{ref}}^h$ (reference tiled $N$ times) and $\mathbf{x}_0^h$ is the heading-frame state (Section 4.5). The online computation is two matrix-vector products — no QP solver is invoked — guaranteeing a **100% solve rate** and deterministic 50 Hz execution. The matrix inversion $H^{-1}$ is feasible because the problem is unconstrained; hard rotor limits are enforced post-hoc by the thrust-priority allocator.
+where $\mathbf{X}_{\mathrm{ref}} = \mathbf{1}_N \otimes \mathbf{x}_{\mathrm{ref}}^h$ (reference tiled $N$ times) and $\mathbf{x}_0^h$ is the heading-frame state (Section 4.5).
+The online computation is two matrix-vector products — no QP solver is invoked — guaranteeing a **100% solve rate** and deterministic 50 Hz execution. The matrix inversion $H^{-1}$ is feasible because the problem is unconstrained; hard rotor limits are enforced post-hoc by the thrust-priority allocator.
 
 ### 4.4 Online Control Loop
 
 Each 50 Hz control tick executes five sequential steps:
 
 **Step 1 — Yaw frame rotation.**
-The hover-point linearisation couples pitch to world $x$-acceleration and roll to world $y$-acceleration, valid only when body and world frames are aligned ($\psi = 0$). Both state and reference are rotated into the drone's heading frame to restore this alignment at arbitrary yaw:
+The hover-point linearisation couples pitch to world $x$-acceleration and roll to world $y$-acceleration, valid only when body and world frames are aligned ($\psi = 0$).
+Both state and reference are rotated into the drone's heading frame to restore this alignment at arbitrary yaw:
 
 $$
 \begin{bmatrix} x^h \\\\ y^h \end{bmatrix} = \underbrace{\begin{bmatrix} \cos\psi & \sin\psi \\\\ -\sin\psi & \cos\psi \end{bmatrix}}_{R_z(-\psi)} \begin{bmatrix} x \\\\ y \end{bmatrix}, \qquad \begin{bmatrix} \dot{x}^h \\\\ \dot{y}^h \end{bmatrix} = R_z(-\psi) \begin{bmatrix} \dot{x} \\\\ \dot{y} \end{bmatrix}
 $$
 
-The yaw state is zeroed ($\psi^h = 0$) and the yaw reference is set to the yaw error $\Delta\psi_{\text{ref}}$ (wrapped to $[-\pi,\pi]$). All other state components (altitude $z$, attitude $\phi,\theta$, angular rates $p,q,r$) are unchanged.
+The yaw state is zeroed ($\psi^h = 0$) and the yaw reference is set to the yaw error $\Delta\psi_{\mathrm{ref}}$ (wrapped to $[-\pi,\pi]$).
+All other state components (altitude $z$, attitude $\phi,\theta$, angular rates $p,q,r$) are unchanged.
 
 **Step 2 — MPC perturbation.**
 The closed-form gain produces the optimal control deviation from the hover equilibrium:
@@ -299,13 +340,18 @@ The wind-rejection integrator is updated and its correction added (see Section 4
 $$\mathbf{u}_{\text{total}} \mathrel{+}= \mathbf{u}_I$$
 
 **Step 5 — Thrust-priority motor allocation.**
-$\mathbf{u}_{\text{total}}$ is inverted to rotor speeds; if saturation occurs a binary search scales torques while preserving thrust (see Section 4.6). Rotor speeds $[\omega_0,\omega_1,\omega_2,\omega_3]$ are published to `/motor_commands`.
+$\mathbf{u}_{\mathrm{total}}$ is inverted to rotor speeds; if saturation occurs a binary search scales torques while preserving thrust (see Section 4.6).
+Rotor speeds $[\omega_0,$ $\omega_1,$ $\omega_2,$ $\omega_3]$ are published to `/motor_commands`.
 
 ### 4.5 Yaw Compensation
 
-The hover linearisation derives $\ddot{x} \approx g\theta$ and $\ddot{y} \approx -g\phi$ by expanding $R_{WB}\,[0,0,T/m]^\top$ at $\phi=\theta=\psi=0$. When the drone yaws by $\psi \neq 0$, the body $x$-axis no longer aligns with the world $x$-axis: pitch now accelerates along $(\cos\psi, \sin\psi)$ in the world plane, and roll along $(-\sin\psi, \cos\psi)$. Feeding world-frame position error directly into $K_r, K_x$ would therefore generate incorrect roll/pitch commands with heading-dependent cross-coupling.
+The hover linearisation derives $\ddot{x} \approx g\theta$ and $\ddot{y} \approx -g\phi$ by expanding
+$R_{WB}\,[0,0,T/m]^\top$ at $\phi=\theta=\psi=0$.
+When the drone yaws by $\psi \neq 0$, the body $x$-axis no longer aligns with the world $x$-axis: pitch now accelerates along $(\cos\psi, \sin\psi)$ in the world plane, and roll along $(-\sin\psi, \cos\psi)$.
+Feeding world-frame position error directly into $K_r$, $K_x$ would therefore generate incorrect roll/pitch commands with heading-dependent cross-coupling.
 
-By rotating both $\mathbf{x}_0$ and $\mathbf{x}_{\text{ref}}$ into the heading frame first, the MPC always operates in a virtual frame where the drone's nose points along $+x$. The output torques $[\tau_\phi,\tau_\theta]$ are body-frame quantities in that virtual frame, which coincides with the actual body frame — so no additional back-rotation is needed before commanding motors.
+By rotating both $\mathbf{x}_0$ and $\mathbf{x}_{\mathrm{ref}}$ into the heading frame first, the MPC always operates in a virtual frame where the drone's nose points along $+x$.
+The output torques $[\tau_\phi,\tau_\theta]$ are body-frame quantities in that virtual frame, which coincides with the actual body frame — so no additional back-rotation is needed before commanding motors.
 
 ### 4.6 Motor Allocation with Thrust Priority
 
@@ -315,11 +361,15 @@ $$\boldsymbol{\omega}^2 = \mathbf{A}^{-1}\mathbf{u}_{\text{total}}, \qquad \omeg
 
 If all $\omega_i \leq \omega_{\max} = 1500$ rad/s the allocation is accepted. Otherwise, **thrust-priority allocation** proceeds:
 
-1. Decompose $\mathbf{u}_T = [T, 0, 0, 0]^\top$, $\mathbf{u}_\tau = [0, \tau_\phi, \tau_\theta, \tau_\psi]^\top$.
-2. If thrust alone saturates a rotor, scale $T$ to $0.95\,\omega_{\max}^2 k_F^{-1}$ and drop all torques ($\lambda = 0$).
+1. Decompose:
+
+   $$\mathbf{u}_T = [T, 0, 0, 0]^\top, \qquad \mathbf{u}_\tau = [0, \tau_\phi, \tau_\theta, \tau_\psi]^\top$$
+2. If thrust alone saturates a rotor, scale $T$ to $0.95\,\omega_{\max}^2$ $k_F^{-1}$ and drop all torques ($\lambda = 0$).
 3. Otherwise, **binary search** over $\lambda \in [0,1]$ for 20 iterations (accuracy $\approx 10^{-6}$):
    $$\lambda^* = \max\{\lambda : \boldsymbol{\omega}(\mathbf{u}_T + \lambda\,\mathbf{u}_\tau) \leq \omega_{\max}\}$$
-   Apply $\mathbf{u}_{\text{final}} = \mathbf{u}_T + \lambda^*\,\mathbf{u}_\tau$.
+   Apply:
+
+   $$\mathbf{u}_{\text{final}} = \mathbf{u}_T + \lambda^*\,\mathbf{u}_\tau$$
 
 The **torque scale** $\lambda^*$ (field `[12]` of `/mpc_debug`) indicates saturation severity: $\lambda^* = 1.0$ = full torque authority, $\lambda^* < 1.0$ = torques sacrificed to preserve altitude. Thrust is always protected because position control (altitude) takes priority over attitude tracking.
 
@@ -429,7 +479,8 @@ $$\mathbf{x}_k = \mathbf{x}_{k|k-1} + K\,\boldsymbol{\nu}$$
 
 $$P_k = (I - KH)\,P_{k|k-1}\,(I - KH)^\top + K\,R\,K^\top$$
 
-The **Joseph form** is used instead of the standard $P_k = (I-KH)P_{k|k-1}$ to guarantee $P_k$ remains symmetric positive semi-definite under floating-point accumulation errors, providing long-term numerical stability.
+The **Joseph form** is used instead of the standard $(I-KH)P_{k \mid k-1}$ form to guarantee
+$P_k$ remains symmetric positive semi-definite under floating-point accumulation errors, providing long-term numerical stability.
 
 ### 5.4 EKF Noise Parameters
 
