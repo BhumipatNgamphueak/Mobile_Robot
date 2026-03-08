@@ -375,7 +375,7 @@ Apply:
 
 $$\mathbf{u}_{\text{final}} = \mathbf{u}_T + \lambda^*\,\mathbf{u}_\tau$$
 
-The **torque scale** $\lambda^*$ (field `[12]` of `/mpc_debug`) indicates saturation severity: $\lambda^* = 1.0$ = full torque authority, $\lambda^* < 1.0$ = torques sacrificed to preserve altitude. Thrust is always protected because position control (altitude) takes priority over attitude tracking.
+The **torque scale** $\lambda^\ast$ (field `[12]` of `/mpc_debug`) indicates saturation severity: $\lambda^\ast = 1.0$ = full torque authority, $\lambda^\ast < 1.0$ = torques sacrificed to preserve altitude. Thrust is always protected because position control (altitude) takes priority over attitude tracking.
 
 ### 4.7 Integral Action for Wind Rejection
 
@@ -795,7 +795,7 @@ The $y(t) = R\sin(2\omega t)$ component at $2\omega = 2.51$ rad/s with $R = 0.5$
   </tr>
 </table>
 
-All experiments achieved **100% MPC solve rate** and **zero torque-scale events** ($\lambda^* = 1.0$ always). Motor utilisation: 43.0–44.2% across all conditions, confirming 56% headroom for disturbance rejection.
+All experiments achieved **100% MPC solve rate** and **zero torque-scale events** ($\lambda^\ast = 1.0$ always). Motor utilisation: 43.0–44.2% across all conditions, confirming 56% headroom for disturbance rejection.
 
 <p align="center">
   <img src="../report/fig4_motor_utilization.png" width="85%"/>
