@@ -91,8 +91,8 @@ Wind disturbance rejection is achieved through an **integral action** term appen
 | `/odom` | `nav_msgs/Odometry` | BEST_EFFORT | Gazebo ground-truth pose at ~100 Hz |
 | `/state_estimate` | `nav_msgs/Odometry` | RELIABLE | EKF 12-state output at 100 Hz |
 | `/reference_state` | `std_msgs/Float64MultiArray` | RELIABLE | 12-state trajectory reference at 50 Hz |
-| `/control_wrench` | `std_msgs/Float64MultiArray` | RELIABLE | Total wrench $[T, \tau_\phi, \tau_\theta, \tau_\psi]$ at 50 Hz |
-| `/motor_commands` | `actuator_msgs/Actuators` | RELIABLE | Rotor speeds $[\omega_0, \omega_1, \omega_2, \omega_3]$ at 50 Hz |
+| `/control_wrench` | `std_msgs/Float64MultiArray` | RELIABLE | Total wrench $`[T, \tau_\phi, \tau_\theta, \tau_\psi]`$ at 50 Hz |
+| `/motor_commands` | `actuator_msgs/Actuators` | RELIABLE | Rotor speeds $`[\omega_0, \omega_1, \omega_2, \omega_3]`$ at 50 Hz |
 | `/mpc_debug` | `std_msgs/Float64MultiArray` | RELIABLE | 19-field MPC internal telemetry at 50 Hz |
 
 ### 2.3 Package Structure
@@ -145,7 +145,7 @@ Applying Newton-Euler equations to the quadrotor:
 $$m\ddot{\mathbf{p}} = R\,\mathbf{f}_B - m g\,\hat{z}_W$$
 
 where $\mathbf{f}_B = [0, 0, T]^\top$ is the total thrust in the body frame and
-$T = \sum_{i=0}^{3} T_i$.
+$`T = \sum_{i=0}^{3} T_i`$.
 
 **Rotational dynamics (body frame):**
 
@@ -171,7 +171,7 @@ where $k_F = 8.549 \times 10^{-6}\ \mathrm{N/(rad/s)}^2$ is the thrust coefficie
 $k_M = 0.06$ is the dimensionless moment-to-thrust ratio (Gazebo `momentConstant`),
 and $d_i \in \lbrace+1, -1\rbrace$ is the spinning direction (CCW = $+1$, CW = $-1$).
 
-The effective yaw coefficient is $\kappa = k_F k_M = 5.129 \times 10^{-7}\ \mathrm{N \cdot m/(rad/s)}^2$.
+The effective yaw coefficient is $`\kappa = k_F k_M = 5.129 \times 10^{-7}\ \mathrm{N \cdot m/(rad/s)}^2`$.
 
 ### 3.5 Motor Layout and Allocation Matrix
 
@@ -196,11 +196,11 @@ $$\mathbf{u} = [T, \tau_\phi, \tau_\theta, \tau_\psi]^\top$$
 
 ### 3.6 Linearisation around Hover
 
-At the hover equilibrium $\mathbf{x}_0 = \mathbf{0}_{12}$,
+At the hover equilibrium $`\mathbf{x}_0 = \mathbf{0}_{12}`$,
 $\mathbf{u}_0 = [mg, 0, 0, 0]^\top$,
 and under the small-angle assumption ($\lvert\phi\rvert, \lvert\theta\rvert \ll 1$),
 the nonlinear dynamics reduce to the continuous LTI system
-$\dot{\mathbf{x}} = A_c\,\mathbf{x} + B_c\,\mathbf{u}$:
+$`\dot{\mathbf{x}} = A_c\,\mathbf{x} + B_c\,\mathbf{u}`$:
 
 $$
 A_c = \begin{bmatrix} \mathbf{0}_3 & \mathbf{0}_3 & I_3 & \mathbf{0}_3 \\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & I_3 \\ \mathbf{0}_{3\times3}^* & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \\ \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 & \mathbf{0}_3 \end{bmatrix}, \quad B_c = \begin{bmatrix} \mathbf{0}_{6\times4} \\ B_{\text{acc}} \end{bmatrix}
@@ -304,7 +304,7 @@ $+\mathbf{X}_{\mathrm{ref}}$. Once computed offline, the optimal perturbation co
 
 $$\mathbf{u}_\delta = K_r\,\mathbf{X}_{\text{ref}} + K_x\,\mathbf{x}_0^h$$
 
-where $\mathbf{X}_{\mathrm{ref}} = \mathbf{1}_N \otimes \mathbf{x}_{\mathrm{ref}}^h$ (reference tiled $N$ times) and $\mathbf{x}_0^h$ is the heading-frame state (Section 4.5).
+where $`\mathbf{X}_{\mathrm{ref}} = \mathbf{1}_N \otimes \mathbf{x}_{\mathrm{ref}}^h`$ (reference tiled $N$ times) and $\mathbf{x}_0^h$ is the heading-frame state (Section 4.5).
 The online computation is two matrix-vector products — no QP solver is invoked — guaranteeing a **100% solve rate** and deterministic 50 Hz execution. The matrix inversion $H^{-1}$ is feasible because the problem is unconstrained; hard rotor limits are enforced post-hoc by the thrust-priority allocator.
 
 ### 4.4 Online Control Loop
@@ -341,7 +341,7 @@ $$\mathbf{u}_{\text{total}} \mathrel{+}= \mathbf{u}_I$$
 
 **Step 5 — Thrust-priority motor allocation.**
 $\mathbf{u}_{\mathrm{total}}$ is inverted to rotor speeds; if saturation occurs a binary search scales torques while preserving thrust (see Section 4.6).
-Rotor speeds $[\omega_0, \omega_1, \omega_2, \omega_3]$ are published to `/motor_commands`.
+Rotor speeds $`[\omega_0, \omega_1, \omega_2, \omega_3]`$ are published to `/motor_commands`.
 
 ### 4.5 Yaw Compensation
 
@@ -351,7 +351,7 @@ When the drone yaws by $\psi \neq 0$, the body $x$-axis no longer aligns with th
 Feeding world-frame position error directly into $K_r$, $K_x$ would therefore generate incorrect roll/pitch commands with heading-dependent cross-coupling.
 
 By rotating both $\mathbf{x}_0$ and $\mathbf{x}_{\mathrm{ref}}$ into the heading frame first, the MPC always operates in a virtual frame where the drone's nose points along $+x$.
-The output torques $[\tau_\phi,\tau_\theta]$ are body-frame quantities in that virtual frame, which coincides with the actual body frame — so no additional back-rotation is needed before commanding motors.
+The output torques $`[\tau_\phi,\tau_\theta]`$ are body-frame quantities in that virtual frame, which coincides with the actual body frame — so no additional back-rotation is needed before commanding motors.
 
 ### 4.6 Motor Allocation with Thrust Priority
 
@@ -359,13 +359,13 @@ The allocation matrix $\mathbf{A}$ maps squared rotor speeds to wrench:
 
 $$\boldsymbol{\omega}^2 = \mathbf{A}^{-1}\mathbf{u}_{\text{total}}, \qquad \omega_i = \sqrt{\max(\omega_i^2, 0)}$$
 
-If all $\omega_i \leq \omega_{\max} = 1500$ rad/s the allocation is accepted. Otherwise, **thrust-priority allocation** proceeds:
+If all $`\omega_i \leq \omega_{\max} = 1500`$ rad/s the allocation is accepted. Otherwise, **thrust-priority allocation** proceeds:
 
 **Step 1 — Decompose:**
 
 $$\mathbf{u}_T = [T, 0, 0, 0]^\top, \qquad \mathbf{u}_\tau = [0, \tau_\phi, \tau_\theta, \tau_\psi]^\top$$
 
-**Step 2** — If thrust alone saturates a rotor, scale $T$ to $0.95\,\omega_{\max}^2 \, k_F^{-1}$ and drop all torques ($\lambda = 0$).
+**Step 2** — If thrust alone saturates a rotor, scale $T$ to $`0.95\,\omega_{\max}^2 \, k_F^{-1}`$ and drop all torques ($\lambda = 0$).
 
 **Step 3** — Otherwise, **binary search** over $\lambda \in [0,1]$ for 20 iterations (accuracy $\approx 10^{-6}$):
 
@@ -407,7 +407,7 @@ An **Extended Kalman Filter (EKF)** running at 100 Hz fuses IMU and odometry dat
 
 ### 5.1 Nonlinear State Prediction
 
-At each 100 Hz prediction tick, the EKF propagates the full nonlinear equations of motion using the most recently received wrench $[T,\tau_\phi,\tau_\theta,\tau_\psi]$ from `/control_wrench`.
+At each 100 Hz prediction tick, the EKF propagates the full nonlinear equations of motion using the most recently received wrench $`[T,\tau_\phi,\tau_\theta,\tau_\psi]`$ from `/control_wrench`.
 
 **Translational dynamics (world frame):**
 
@@ -758,7 +758,7 @@ All trajectories fly in the x-z plane (`traj_plane=xz`). Reference yaw is fixed 
   </tr>
 </table>
 
-The $y(t) = R\sin(2\omega t)$ component at $2\omega = 2.51$ rad/s with $R = 0.5$ m produces peak lateral acceleration $|\ddot{y}| = R(2\omega)^2 \approx 3.16$ m/s², requiring $\phi \approx \arcsin(3.16/9.81) \approx 19°$. The measured maximum of **22.9°** exceeds both this prediction and the ±15° linearisation bound. Despite this, the controller degrades gracefully rather than diverging — the EKF's nonlinear prediction maintains accurate state estimates even at large angles.
+The $y(t) = R\sin(2\omega t)$ component at $2\omega = 2.51$ rad/s with $R = 0.5$ m produces peak lateral acceleration $`|\ddot{y}| = R(2\omega)^2 \approx 3.16`$ m/s², requiring $\phi \approx \arcsin(3.16/9.81) \approx 19°$. The measured maximum of **22.9°** exceeds both this prediction and the ±15° linearisation bound. Despite this, the controller degrades gracefully rather than diverging — the EKF's nonlinear prediction maintains accurate state estimates even at large angles.
 
 #### Consolidated 3D Metrics
 
